@@ -38,6 +38,8 @@ class ChatServiceTest {
     UserRepo userRepo;
     @Mock
     com.example.connectmessenger.repo.MessageRepo messageRepo;
+    @Mock
+    com.example.connectmessenger.repo.UserBlockRepo userBlockRepo;
     @InjectMocks
     ChatService chatService;
 
@@ -67,14 +69,14 @@ class ChatServiceTest {
     void getChatByIdThrows404ForUnknownChat() {
         when(chatRepo.findById(5L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> chatService.getChatById(5L)).isInstanceOf(ResponseStatusException.class)
+        assertThatThrownBy(() -> chatService.getChatById(5L, 1L)).isInstanceOf(ResponseStatusException.class)
                 .extracting(e -> ((ResponseStatusException) e).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test
     void createChatRejectsInvalidUserLists() {
         for (List<Long> ids : new List[]{null, List.of(), List.of(1L), List.of(1L, 1L)}) {
-            assertThatThrownBy(() -> chatService.createChat(new CreateChatRequest(ids)))
+            assertThatThrownBy(() -> chatService.createChat(new CreateChatRequest(ids), 1L))
                     .isInstanceOf(ResponseStatusException.class)
                     .extracting(e -> ((ResponseStatusException) e).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         }
@@ -86,7 +88,7 @@ class ChatServiceTest {
         when(userRepo.findById(1L)).thenReturn(Optional.of(user(1L)));
         when(userRepo.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> chatService.createChat(new CreateChatRequest(List.of(1L, 99L))))
+        assertThatThrownBy(() -> chatService.createChat(new CreateChatRequest(List.of(1L, 99L)), 1L))
                 .isInstanceOf(ResponseStatusException.class)
                 .extracting(e -> ((ResponseStatusException) e).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         verify(chatRepo, never()).save(any());
@@ -105,7 +107,7 @@ class ChatServiceTest {
 
         when(statusRepo.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        var dto = chatService.createChat(new CreateChatRequest(List.of(1L, 2L, 3L)));
+        var dto = chatService.createChat(new CreateChatRequest(List.of(1L, 2L, 3L)), 1L).chat();
 
         assertThat(dto.getId()).isEqualTo(10L);
         assertThat(dto.getUsers()).hasSize(3);

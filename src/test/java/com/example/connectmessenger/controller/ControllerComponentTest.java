@@ -11,6 +11,7 @@ import com.example.connectmessenger.repo.ChatRepo;
 import com.example.connectmessenger.repo.MessageRepo;
 import com.example.connectmessenger.repo.ReactionRepo;
 import com.example.connectmessenger.repo.StatusRepo;
+import com.example.connectmessenger.repo.UserBlockRepo;
 import com.example.connectmessenger.repo.UserRepo;
 import io.restassured.RestAssured;
 import io.restassured.http.ContentType;
@@ -52,7 +53,7 @@ import static org.mockito.Mockito.when;
  * runs, entity mapping and queries are NOT covered here.
  *
  * Data: janek007=1/qwerty, ewa-nowak=2, mrsmith=3, grace01=4/1234;
- * chat 1 = {1,2}, chat 2 = {1,3}, chat 3 = {4,3}, chat 4 = {1,4}; message 1 is in chat 1, message 13 in chat 2.
+ * chat 1 = {1,2}, chat 2 = {1,3}, chat 3 = {4,3}, chat 4 = {1,4}, group chat 10 = {1,2,3} with admin 1; message 1 is in chat 1, message 13 in chat 2.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
@@ -79,8 +80,12 @@ abstract class ControllerComponentTest {
     static final User GRACE = user(4, "grace01", "Grace", "Hopper", ENCODED_1234);
     static final List<User> USERS = List.of(JANEK, EWA, MRSMITH, GRACE);
 
+    /** a group chat "Team" of janek (admin), ewa and mrsmith */
+    static final long GROUP_ID = 10L;
+
     /** chat id -> member user ids */
-    static final Map<Long, Set<Long>> MEMBERS = Map.of(1L, Set.of(1L, 2L), 2L, Set.of(1L, 3L), 3L, Set.of(4L, 3L), 4L, Set.of(1L, 4L));
+    static final Map<Long, Set<Long>> MEMBERS = Map.of(1L, Set.of(1L, 2L), 2L, Set.of(1L, 3L), 3L, Set.of(4L, 3L), 4L, Set.of(1L, 4L),
+            GROUP_ID, Set.of(1L, 2L, 3L));
 
     @LocalServerPort
     int port;
@@ -96,6 +101,11 @@ abstract class ControllerComponentTest {
     StatusRepo statusRepo;
     @MockitoBean
     ReactionRepo reactionRepo;
+    @MockitoBean
+    UserBlockRepo userBlockRepo;
+
+    /** Chats saved during the current test, so they can be read back. */
+    final Map<Long, Chat> createdChats = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** The reactions "table" of the current test. */
     final List<Reaction> reactions = new CopyOnWriteArrayList<>();
@@ -104,10 +114,11 @@ abstract class ControllerComponentTest {
     void stubRepositories() {
         RestAssured.port = port;
 
+        // copies, so that a test that changes a user (profile, password, avatar) doesn't change it for the next one
         when(userRepo.getUserByUsername(anyString())).thenAnswer(inv ->
-                USERS.stream().filter(u -> u.getUsername().equals(inv.getArgument(0))).findFirst());
+                USERS.stream().filter(u -> u.getUsername().equals(inv.getArgument(0))).findFirst().map(ControllerComponentTest::copy));
         when(userRepo.findById(anyLong())).thenAnswer(inv ->
-                USERS.stream().filter(u -> u.getId().equals(inv.getArgument(0))).findFirst());
+                USERS.stream().filter(u -> u.getId().equals(inv.getArgument(0))).findFirst().map(ControllerComponentTest::copy));
         when(userRepo.findTop20ByUsernameContainingIgnoreCaseOrNameContainingIgnoreCaseOrSurnameContainingIgnoreCase(
                 anyString(), anyString(), anyString())).thenAnswer(inv -> {
             String q = ((String) inv.getArgument(0)).toLowerCase();
@@ -117,14 +128,19 @@ abstract class ControllerComponentTest {
 
         when(chatRepo.existsByIdAndUsers_Id(any(), any())).thenAnswer(inv ->
                 MEMBERS.getOrDefault(inv.<Long>getArgument(0), Set.of()).contains(inv.<Long>getArgument(1)));
-        when(chatRepo.findById(anyLong())).thenAnswer(inv -> Optional.ofNullable(chat(inv.getArgument(0))));
+        createdChats.clear();
+        when(chatRepo.findById(anyLong())).thenAnswer(inv ->
+                Optional.ofNullable(createdChats.containsKey(inv.<Long>getArgument(0)) ? createdChats.get(inv.<Long>getArgument(0)) : chat(inv.getArgument(0))));
         when(chatRepo.findByUsers_Id(anyLong())).thenAnswer(inv -> MEMBERS.entrySet().stream()
                 .filter(e -> e.getValue().contains(inv.<Long>getArgument(0)))
                 .map(e -> chat(e.getKey())).toList());
         var nextChatId = new AtomicLong(5);
         when(chatRepo.save(any(Chat.class))).thenAnswer(inv -> {
             Chat chat = inv.getArgument(0);
-            chat.setId(nextChatId.getAndIncrement());
+            if (chat.getId() == null) {
+                chat.setId(nextChatId.getAndIncrement());
+            }
+            createdChats.put(chat.getId(), chat);
             return chat;
         });
 
@@ -190,8 +206,26 @@ abstract class ControllerComponentTest {
         org.mockito.Mockito.doAnswer(inv -> reactions.remove(inv.<Reaction>getArgument(0)))
                 .when(reactionRepo).delete(any(Reaction.class));
 
+        // 1:1 chats of two users: chat 1 = {1,2}, 2 = {1,3}, 3 = {4,3}, 4 = {1,4}
+        when(chatRepo.findDirectChats(anyLong(), anyLong())).thenAnswer(inv -> MEMBERS.entrySet().stream()
+                .filter(e -> e.getKey() != GROUP_ID && e.getValue().contains(inv.<Long>getArgument(0))
+                        && e.getValue().contains(inv.<Long>getArgument(1)))
+                .map(e -> chat(e.getKey())).toList());
+        when(statusRepo.findById(any())).thenAnswer(inv -> {
+            var id = inv.<StatusEmbeddedId>getArgument(0);
+            return Optional.ofNullable(MEMBERS.get(id.getChatId())).filter(m -> m.contains(id.getUserId()))
+                    .map(m -> chat(id.getChatId()).getStatus().stream()
+                            .filter(s -> s.getId().getUserId().equals(id.getUserId())).findFirst().orElseThrow());
+        });
+        when(userBlockRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(statusRepo.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
         when(statusRepo.save(any(Status.class))).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    private static User copy(User u) {
+        User c = user(u.getId(), u.getUsername(), u.getName(), u.getSurname(), u.getPassword());
+        c.setAvatarKey(u.getAvatarKey());
+        return c;
     }
 
     private static User user(long id, String username, String name, String surname, String password) {
@@ -218,10 +252,13 @@ abstract class ControllerComponentTest {
             return null;
         }
         return Chat.builder().id(id)
+                .groupChat(id == GROUP_ID)
+                .name(id == GROUP_ID ? "Team" : null)
                 .users(USERS.stream().filter(u -> memberIds.contains(u.getId())).toList())
                 .messages(id == 1 ? List.of(message(1)) : id == 2 ? List.of(message(13)) : List.of())
                 .status(memberIds.stream().map(uid -> Status.builder()
-                        .id(new StatusEmbeddedId(uid, id)).build()).toList())
+                        .groupAdmin(id == GROUP_ID && uid == 1L)
+                        .id(new StatusEmbeddedId(uid, id)).build()).collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new)))
                 .build();
     }
 

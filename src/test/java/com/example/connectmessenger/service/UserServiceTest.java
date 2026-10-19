@@ -22,6 +22,8 @@ import static org.mockito.Mockito.when;
 class UserServiceTest {
     @Mock
     UserRepo userRepo;
+    @Mock
+    com.example.connectmessenger.repo.UserBlockRepo userBlockRepo;
     @InjectMocks
     UserService userService;
 
@@ -46,6 +48,16 @@ class UserServiceTest {
         List<User> result = userService.getUsersByQuery("  jan ", 1L);
 
         assertThat(result).extracting(User::getId).containsExactly(2L);
+    }
+
+    @Test
+    void searchHidesPeopleWhoBlockedTheCaller() {
+        when(userRepo.findTop20ByUsernameContainingIgnoreCaseOrNameContainingIgnoreCaseOrSurnameContainingIgnoreCase(
+                "jan", "jan", "jan")).thenReturn(List.of(user(2L), user(3L)));
+        when(userBlockRepo.findByBlockedId(1L)).thenReturn(List.of(
+                com.example.connectmessenger.model.UserBlock.builder().blockerId(3L).blockedId(1L).build()));
+
+        assertThat(userService.getUsersByQuery("jan", 1L)).extracting(User::getId).containsExactly(2L);
     }
 
     @Test

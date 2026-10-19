@@ -63,9 +63,9 @@ class ChatControllerTest extends ControllerComponentTest {
 
     @Test
     void chatCanBeCreatedAndReadBack() {
-        String token = janek();
+        String token = grace();
 
-        int id = asJson(token, "{\"userIds\":[1,3]}").post("/chats")
+        int id = asJson(token, "{\"userIds\":[4,2]}").post("/chats")
                 .then().statusCode(200)
                 .body("id", equalTo(5))
                 .body("users.size()", equalTo(2))

@@ -14,12 +14,13 @@ public class UserDtoMapper {
                 .collect(Collectors.toList());
     }
 
-    private static UserDto mapToUserDto(User u) {
+    public static UserDto mapToUserDto(User u) {
         return UserDto.builder()
                 .id(u.getId())
                 .name(u.getName())
                 .surname(u.getSurname())
                 .username(u.getUsername())
+                .avatarKey(u.getAvatarKey())
                 .build();
     }
 }

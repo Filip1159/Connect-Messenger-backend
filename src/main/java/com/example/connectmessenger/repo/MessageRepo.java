@@ -14,6 +14,8 @@ import java.util.Optional;
 public interface MessageRepo extends JpaRepository<Message, Long> {
     Optional<Message> findByTypeAndContent(MessageType type, String content);
 
+    Optional<Message> findFirstByChatIdOrderByIdDesc(Long chatId);
+
     /** Messages written by others after `after` (the reader's last seen message). */
     long countByChatIdAndIdGreaterThanAndUserIdNot(Long chatId, Long after, Long userId);
 

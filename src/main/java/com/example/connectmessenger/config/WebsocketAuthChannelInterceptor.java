@@ -28,6 +28,7 @@ public class WebsocketAuthChannelInterceptor implements ChannelInterceptor {
     private static final String MESSAGES_TOPIC = "/topic/messages/";
     private static final String STATUS_TOPIC = "/topic/status/";
     private static final String NEW_CHATS_TOPIC = "/topic/new-chats/";
+    private static final String REMOVED_CHATS_TOPIC = "/topic/removed-chats/";
     private static final String TYPING_TOPIC = "/topic/typing/";
     private static final String PRESENCE_TOPIC = "/topic/presence/";
     private static final Pattern TYPING_DESTINATION = Pattern.compile("^/app/chats/(\\d+)/typing$");
@@ -116,8 +117,10 @@ public class WebsocketAuthChannelInterceptor implements ChannelInterceptor {
                 if (!chatService.sharesChat(user.getId(), Long.parseLong(destination.substring(PRESENCE_TOPIC.length())))) {
                     throw new MessagingException("Not allowed to follow this user");
                 }
-            } else if (destination.startsWith(NEW_CHATS_TOPIC)) {
-                if (Long.parseLong(destination.substring(NEW_CHATS_TOPIC.length())) != user.getId()) {
+            } else if (destination.startsWith(NEW_CHATS_TOPIC) || destination.startsWith(REMOVED_CHATS_TOPIC)) {
+                String owner = destination.substring(destination.startsWith(NEW_CHATS_TOPIC)
+                        ? NEW_CHATS_TOPIC.length() : REMOVED_CHATS_TOPIC.length());
+                if (Long.parseLong(owner) != user.getId()) {
                     throw new MessagingException("Cannot subscribe to another user's topic");
                 }
             } else {

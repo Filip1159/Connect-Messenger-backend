@@ -71,6 +71,7 @@ public class MessageController {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot post as another user");
         }
         chatService.assertMember(message.chatId(), principal.getId());
+        chatService.assertCanPost(message.chatId(), principal.getId());
         var request = new CreateMessageRequest(message.chatId(), principal.getId(), message.time(),
                 message.type(), message.textContent(), message.fileContent(), message.replyToId());
         Message added = messageService.addMessage(request);

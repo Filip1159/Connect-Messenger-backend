@@ -83,16 +83,48 @@ Notes on what was built:
 - **Known gap:** catch-up after a reconnect (`?after=`) only brings new messages, so an edit, delete or reaction made while the client was offline shows after a reload.
 - Also fixed: the invisible hover tooltip of a message could cover buttons of other messages (`pointer-events: none`).
 
-## 3. Chats and users
+## 3. Chats and users — DONE
 
 | # | Feature | Details | Size |
 |---|---------|---------|------|
-| 3.1 | **Account registration** | There is no sign-up; users only come from `data.sql`. BE: `POST /users` (validation, password policy, unique username, BCrypt). FE: registration page and link from the login page. | M (FE+BE) |
-| 3.2 | **Profile editing** | Change name, surname, password; real avatar upload (S3) instead of the generated `Avatar` from the username. `UserDetailsSection` is read-only today. | M (FE+BE) |
-| 3.3 | **Group chats** | Backend model already supports `Chat.users` with N users, but `createChat` always sends two ids and `getRecipient` assumes one other participant. FE: multi-select in search, group name, avatars stack; BE: chat title, add/remove member, admin role, authorisation on those. | L |
-| 3.4 | **Prevent duplicate 1:1 chats** | Creating a chat with the same person twice makes a second chat. BE: return the existing one (idempotent create); FE: just activate it. | S |
-| 3.5 | **Leave / archive / mute chat** | Per-user chat flags; hide archived chats from the list. | M (FE+BE) |
-| 3.6 | **Block user** | Prevents new chats and messages from a blocked user. | M (FE+BE) |
+| 3.1 ✅ | **Account registration** | There is no sign-up; users only come from `data.sql`. BE: `POST /users` (validation, password policy, unique username, BCrypt). FE: registration page and link from the login page. | M (FE+BE) |
+| 3.2 ✅ | **Profile editing** | Change name, surname, password; real avatar upload (S3) instead of the generated `Avatar` from the username. `UserDetailsSection` is read-only today. | M (FE+BE) |
+| 3.3 ✅ | **Group chats** | Backend model already supports `Chat.users` with N users, but `createChat` always sends two ids and `getRecipient` assumes one other participant. FE: multi-select in search, group name, avatars stack; BE: chat title, add/remove member, admin role, authorisation on those. | L |
+| 3.4 ✅ | **Prevent duplicate 1:1 chats** | Creating a chat with the same person twice makes a second chat. BE: return the existing one (idempotent create); FE: just activate it. | S |
+| 3.5 ✅ | **Leave / archive / mute chat** | Per-user chat flags; hide archived chats from the list. | M (FE+BE) |
+| 3.6 ✅ | **Block user** | Prevents new chats and messages from a blocked user. | M (FE+BE) |
+
+Notes on what was built:
+
+- **Registration (3.1):** `POST /users` is public (`{username, name, surname, password}` -> 201 `UserDto`). Username 3-30 of `[A-Za-z0-9._-]`, unique ignoring case
+  (409; also a unique column), password 8-72 characters with a letter and a digit (BCrypt, `{bcrypt}` prefix like the seed data), names 1-50.
+  The frontend page `/register` validates with the same rules, then signs in. **Registration is open to anyone: add 5.4 (rate limiting) before exposing it.**
+- **Profile (3.2):** `GET /users/me`, `PATCH /users/me` (`{name, surname}`), `PUT /users/me/password` (`{currentPassword, newPassword}`, 403 on a wrong one),
+  `PUT /users/me/avatar` (multipart `file`, JPG/PNG/GIF by magic bytes, 2 MB) and `DELETE /users/me/avatar`, `GET /users/{id}/avatar`.
+  `UserDto.avatarKey` is the uploaded file (new on every upload); without it the frontend falls back to the bundled `/images/avatars/{username}.png`.
+  The frontend takes the current profile from `GET /users/me` after sign-in (the JWT keeps the name from sign-in time).
+- **Groups (3.3):** `Chat.name` and `Chat.groupChat`; the admin flag lives on the membership row (`status.group_admin`). `POST /chats` `{userIds, name?}` makes a group when
+  there is a name or more than two users (at most 50); the creator is its admin. `PATCH /chats/chat/{id}` renames (admin), `POST .../members` `{userIds}` (admin; a new member starts with
+  nothing unread but can read the history), `DELETE .../members/{userId}` (admin removes, or a member leaves = removes themselves; the first remaining member becomes admin when the last admin goes),
+  `PUT|DELETE .../admins/{userId}` (admin; a group keeps at least one admin). All other changes: 403 for non-admins, 400 for 1:1 chats.
+  `ChatDto` gained `name`, `group`, `adminIds`, `archived`, `muted`.
+  Changes are pushed to every member's `/topic/new-chats/{userId}` (the chat as that member sees it); the removed user gets `/topic/removed-chats/{userId}` and the server
+  also drops their STOMP subscriptions to the chat's topics (`ChatNotifier`; verified against a real STOMP client), otherwise they would keep receiving messages.
+  Frontend: "New group" dialog next to the search, chat details dialog (info button in the conversation header), author names above received messages, member count / who is typing in the header,
+  no "seen" avatar in groups.
+- **One chat per pair (3.4):** `POST /chats` with two users returns the existing 1:1 chat (and un-archives it for the caller) instead of creating a second one; no broadcast then.
+  The frontend opens it.
+- **Archive and mute (3.5):** `PATCH /chats/chat/{id}/settings` `{archived?, muted?}`, personal (stored on the membership row, nobody else is told). Archived chats are listed in a collapsible
+  "Archived" section; muted chats don't count in the tab title (and are ready for the notifications in 4.3). Leaving applies to groups only (a 1:1 chat is archived instead).
+- **Blocking (3.6):** `PUT|DELETE /users/{id}/block`, `GET /users/blocked`. Either direction of a block stops new 1:1 chats (403), messages in an existing 1:1 chat (403)
+  and adding the person to a group; people who blocked you are missing from the user search. Groups themselves are not affected. The frontend replaces the input with a notice (and an Unblock button)
+  and lists blocked people in the profile dialog.
+- **Fixed on the way:** CORS allowed only GET/POST/PUT, so `PATCH` and `DELETE` (message edit/delete from 2.4) would have been refused by browsers on another origin; `PUT /status` replaced the
+  whole membership row (it would now reset the admin/archived/muted flags), it updates the row instead; the sync hook restarted on every profile change (it now follows the user id only).
+- **Schema:** `chats.name`, `chats.group_chat`, `status.group_admin`, `status.archived`, `status.muted`, `users.avatar_key`, unique `users.username`, table `user_blocks` need a migration in production (5.7).
+  The boolean columns default to false, so existing rows are 1:1 chats with no flags.
+- **Known gaps:** a changed name or avatar of another person shows after the next reload or reconnect (no broadcast); there are no system messages ("X added Y"); a new message does not un-archive a chat;
+  messages of a blocked person in a *group* are still shown; the person who was blocked only sees a failed message (403), not why; no avatar for a group.
 
 ## 4. UX, accessibility, mobile
 
@@ -116,7 +148,7 @@ Notes on what was built:
 | 5.4 | **Login rate limiting / lockout** | Throttle `/login` by IP and username to slow brute force. | S |
 | 5.5 | **Persistence tests** | Repositories are mocked in all tests, so JPA mappings and the paging query are untested. Add Testcontainers MySQL tests (CI already has Docker). | M |
 | 5.6 | **Real S3 and STOMP integration tests** | The in-memory S3 and the websocket handshake are only unit-tested. Add an end-to-end websocket test (real STOMP client against `RANDOM_PORT`) and a LocalStack-backed S3 test. | M |
-| 5.7 | **Database migrations** | `ddl-auto=update` on the default profile; adopt Flyway/Liquibase before adding new columns (needed by 2.4, 3.3, 3.5). | M |
+| 5.7 | **Database migrations** | `ddl-auto=update` on the default profile; adopt Flyway/Liquibase before adding new columns (needed by 2.4, 3.3, 3.5; the columns of sections 2 and 3 are listed in their notes). | M |
 | 5.8 | **Observability** | Actuator health and metrics, structured logs, request correlation id; health check used by deployment. | S |
 | 5.9 | **Containerisation and deployment** | Dockerfile and docker-compose (backend + MySQL + frontend); CD workflow after CI. | M |
 | 5.10 | **REST path cleanup** | `/chats/{userId}`, `/chats/chat/{id}/messages`, `/message`, `/user/{query}` are inconsistent (singular/plural, a query in the path). Introduce `/api/v1/...` and a deprecation window after the frontend migrates. | M (FE+BE) |

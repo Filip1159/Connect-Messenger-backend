@@ -10,6 +10,7 @@ import java.util.Optional;
 
 @Repository
 public interface UserRepo extends JpaRepository<User, Long> {
+    boolean existsByUsernameIgnoreCase(String username);
     Optional<User> getUserByUsername(String username);
     List<User> findTop20ByUsernameContainingIgnoreCaseOrNameContainingIgnoreCaseOrSurnameContainingIgnoreCase(String text1, String text2, String text3);
 }

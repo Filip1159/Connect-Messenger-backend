@@ -1,5 +1,6 @@
 package com.example.connectmessenger.model;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -32,9 +33,11 @@ public class User implements UserDetails {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    @Column(unique = true)
     private String username;
     private String name;
     private String surname;
+    private String avatarKey;  // name of the uploaded avatar file, null = the default avatar
     private LocalDateTime lastSeen;  // set when the last websocket session of the user closes
     @ToString.Exclude
     @EqualsAndHashCode.Exclude

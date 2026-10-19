@@ -10,4 +10,6 @@ public class UserDto {
     private final String name;
     private final String surname;
     private final String username;
+    /** Name of the uploaded avatar (changes with every upload); null = none, GET /users/{id}/avatar serves it. */
+    private final String avatarKey;
 }

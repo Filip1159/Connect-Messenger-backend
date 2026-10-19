@@ -158,6 +158,8 @@ class WebsocketAuthChannelInterceptorTest {
     void usersMaySubscribeOnlyToTheirOwnNewChatsTopic() {
         assertThatCode(() -> subscribe("/topic/new-chats/1")).doesNotThrowAnyException();
         assertThatThrownBy(() -> subscribe("/topic/new-chats/2")).isInstanceOf(MessagingException.class);
+        assertThatCode(() -> subscribe("/topic/removed-chats/1")).doesNotThrowAnyException();
+        assertThatThrownBy(() -> subscribe("/topic/removed-chats/2")).isInstanceOf(MessagingException.class);
     }
 
     @Test

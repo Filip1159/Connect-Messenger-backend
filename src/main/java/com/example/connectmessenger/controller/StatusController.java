@@ -3,6 +3,7 @@ package com.example.connectmessenger.controller;
 import com.example.connectmessenger.config.CustomProperties;
 import com.example.connectmessenger.model.Message;
 import com.example.connectmessenger.model.Status;
+import com.example.connectmessenger.model.StatusEmbeddedId;
 import com.example.connectmessenger.model.User;
 import com.example.connectmessenger.model.dto.StatusDto;
 import com.example.connectmessenger.repo.MessageRepo;
@@ -49,9 +50,12 @@ public class StatusController {
             }
         }
 
-        var own = new StatusDto(new StatusDto.Id(principal.getId(), chatId), request.messageId(),
-                request.time() == null ? LocalDateTime.now() : request.time());
-        Status saved = statusRepo.save(own.toEntity());
+        // update the row: it also holds the membership flags (admin, archived, muted), a new entity would reset them
+        Status own = statusRepo.findById(new StatusEmbeddedId(principal.getId(), chatId))
+                .orElseGet(() -> Status.builder().id(new StatusEmbeddedId(principal.getId(), chatId)).build());
+        own.setMessageId(request.messageId());
+        own.setTime(request.time() == null ? LocalDateTime.now() : request.time());
+        Status saved = statusRepo.save(own);
         var dto = StatusDto.from(saved);
         template.convertAndSend("/topic/status/" + chatId, dto);
         if (properties.legacyStatusBroadcast()) {
