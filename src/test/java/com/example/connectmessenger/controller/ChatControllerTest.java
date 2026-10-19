@@ -22,7 +22,7 @@ class ChatControllerTest extends ControllerComponentTest {
 
     @Test
     void userSeesOnlyOwnChatsWithLazyCollectionsSerialized() {
-        as(janek()).get("/chats/1")
+        as(janek()).get("/api/v1/chats")
                 .then().statusCode(200)
                 .body("id", hasItems(1, 2, 4))
                 .body("id", not(hasItem(3)))
@@ -33,14 +33,14 @@ class ChatControllerTest extends ControllerComponentTest {
 
     @Test
     void chatListReportsUnreadMessages() {
-        as(janek()).get("/chats/1").then().statusCode(200).body("unreadCount", org.hamcrest.Matchers.everyItem(equalTo(3)));
-        as(janek()).get("/chats/1?includeMessages=false").then().statusCode(200)
+        as(janek()).get("/api/v1/chats").then().statusCode(200).body("unreadCount", org.hamcrest.Matchers.everyItem(equalTo(3)));
+        as(janek()).get("/api/v1/chats?includeMessages=false").then().statusCode(200)
                 .body("unreadCount", org.hamcrest.Matchers.everyItem(equalTo(3)));
     }
 
     @Test
     void chatListCanBeLoadedWithoutMessages() {
-        as(janek()).get("/chats/1?includeMessages=false")
+        as(janek()).get("/api/v1/chats?includeMessages=false")
                 .then().statusCode(200)
                 .body("id", hasItems(1, 2, 4))
                 .body("[0].messages", org.hamcrest.Matchers.empty())
@@ -48,24 +48,18 @@ class ChatControllerTest extends ControllerComponentTest {
     }
 
     @Test
-    void chatListOfAnotherUserIsForbidden() {
-        as(janek()).get("/chats/2").then().statusCode(403);
-        as(janek()).get("/chats/4").then().statusCode(403);
-    }
-
-    @Test
     void singleChatCanBeReadOnlyByItsMembers() {
-        as(janek()).get("/chats/chat/1").then().statusCode(200).body("id", equalTo(1))
+        as(janek()).get("/api/v1/chats/1").then().statusCode(200).body("id", equalTo(1))
                 .body("users.id", containsInAnyOrder(1, 2));
-        as(janek()).get("/chats/chat/3").then().statusCode(403);
-        as(janek()).get("/chats/chat/999").then().statusCode(403);
+        as(janek()).get("/api/v1/chats/3").then().statusCode(403);
+        as(janek()).get("/api/v1/chats/999").then().statusCode(403);
     }
 
     @Test
     void chatCanBeCreatedAndReadBack() {
         String token = grace();
 
-        int id = asJson(token, "{\"userIds\":[4,2]}").post("/chats")
+        int id = asJson(token, "{\"userIds\":[4,2]}").post("/api/v1/chats")
                 .then().statusCode(200)
                 .body("id", equalTo(5))
                 .body("users.size()", equalTo(2))
@@ -78,22 +72,22 @@ class ChatControllerTest extends ControllerComponentTest {
 
     @Test
     void chatMustIncludeTheCaller() {
-        asJson(janek(), "{\"userIds\":[2,3]}").post("/chats").then().statusCode(403);
-        asJson(janek(), "{}").post("/chats").then().statusCode(403);
+        asJson(janek(), "{\"userIds\":[2,3]}").post("/api/v1/chats").then().statusCode(403);
+        asJson(janek(), "{}").post("/api/v1/chats").then().statusCode(403);
 
         verify(chatRepo, never()).save(any());
     }
 
     @Test
     void invalidChatRequestsAreRejected() {
-        asJson(janek(), "{\"userIds\":[1]}").post("/chats").then().statusCode(400);
-        asJson(janek(), "{\"userIds\":[1,1]}").post("/chats").then().statusCode(400);
-        asJson(janek(), "{\"userIds\":[1,999]}").post("/chats").then().statusCode(404);
+        asJson(janek(), "{\"userIds\":[1]}").post("/api/v1/chats").then().statusCode(400);
+        asJson(janek(), "{\"userIds\":[1,1]}").post("/api/v1/chats").then().statusCode(400);
+        asJson(janek(), "{\"userIds\":[1,999]}").post("/api/v1/chats").then().statusCode(404);
     }
 
     @Test
     void errorsHaveOneJsonShape() {
-        asJson(janek(), "{\"userIds\":[1,999]}").post("/chats")
+        asJson(janek(), "{\"userIds\":[1,999]}").post("/api/v1/chats")
                 .then().statusCode(404)
                 .body("status", equalTo(404))
                 .body("error", equalTo("Not Found"))
@@ -104,7 +98,7 @@ class ChatControllerTest extends ControllerComponentTest {
     void unexpectedFailuresAreReportedGenericallyWithoutLeakingInternals() {
         when(userRepo.findById(3L)).thenThrow(new IllegalStateException("db password is hunter2"));
 
-        String body = asJson(janek(), "{\"userIds\":[1,3]}").post("/chats")
+        String body = asJson(janek(), "{\"userIds\":[1,3]}").post("/api/v1/chats")
                 .then().statusCode(500)
                 .body("message", equalTo("Unexpected error"))
                 .extract().asString();

@@ -5,6 +5,7 @@ import com.example.connectmessenger.model.dto.RegisterRequest;
 import com.example.connectmessenger.model.dto.UserDto;
 import com.example.connectmessenger.model.dto.UserDtoMapper;
 import com.example.connectmessenger.service.AccountService;
+import com.example.connectmessenger.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -31,7 +32,7 @@ import static org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE;
 
 /** Accounts: sign up (public), the profile of the signed-in user, avatars and blocking. */
 @RestController
-@RequestMapping("/users")
+@RequestMapping("/api/v1/users")
 @RequiredArgsConstructor
 public class UsersController {
     public record ProfileRequest(String name, String surname) {
@@ -41,6 +42,13 @@ public class UsersController {
     }
 
     private final AccountService accountService;
+    private final UserService userService;
+
+    /** People whose username or name contains `query` (at least 2 characters), never the caller. */
+    @GetMapping(params = "query")
+    public List<UserDto> search(@RequestParam String query, @AuthenticationPrincipal User principal) {
+        return UserDtoMapper.mapToUserDtos(userService.getUsersByQuery(query, principal.getId()));
+    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)

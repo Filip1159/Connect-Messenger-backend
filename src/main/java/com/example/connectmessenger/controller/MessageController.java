@@ -30,7 +30,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -57,14 +56,14 @@ public class MessageController {
     private final ReactionService reactionService;
     private final SimpMessagingTemplate template;
 
-    @GetMapping("/message/{id}")
+    @GetMapping("/api/v1/messages/{id}")
     public MessageDto getMessageById(@PathVariable long id, @AuthenticationPrincipal User principal) {
         Message message = messageService.getMessageById(id);
         chatService.assertMember(message.getChatId(), principal.getId());
         return reactionService.toDto(message);
     }
 
-    @PostMapping(value = "/message", consumes = MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(value = "/api/v1/messages", consumes = MULTIPART_FORM_DATA_VALUE)
     public MessageDto postMessage(CreateMessageRequest message, @AuthenticationPrincipal User principal) {
         // userId is optional: the sender is always the authenticated user
         if (message.userId() != null && !principal.getId().equals(message.userId())) {
@@ -78,18 +77,18 @@ public class MessageController {
         return publish(added);
     }
 
-    @PatchMapping("/message/{id}")
+    @PatchMapping("/api/v1/messages/{id}")
     public MessageDto editMessage(@PathVariable long id, @RequestBody EditMessageRequest request,
                                   @AuthenticationPrincipal User principal) {
         return publish(messageService.editMessage(id, principal.getId(), request.textContent()));
     }
 
-    @DeleteMapping("/message/{id}")
+    @DeleteMapping("/api/v1/messages/{id}")
     public MessageDto deleteMessage(@PathVariable long id, @AuthenticationPrincipal User principal) {
         return publish(messageService.deleteMessage(id, principal.getId()));
     }
 
-    @PutMapping("/message/{id}/reaction")
+    @PutMapping("/api/v1/messages/{id}/reaction")
     public MessageDto react(@PathVariable long id, @RequestBody ReactionRequest request,
                             @AuthenticationPrincipal User principal) {
         Message message = messageService.getMessageById(id);
@@ -98,7 +97,7 @@ public class MessageController {
         return publish(message);
     }
 
-    @DeleteMapping("/message/{id}/reaction")
+    @DeleteMapping("/api/v1/messages/{id}/reaction")
     public MessageDto removeReaction(@PathVariable long id, @AuthenticationPrincipal User principal) {
         Message message = messageService.getMessageById(id);
         chatService.assertMember(message.getChatId(), principal.getId());
@@ -118,7 +117,7 @@ public class MessageController {
      * With `after` it returns the messages newer than that id instead (oldest first).
      * With `query` it searches the text messages instead: matches newest first, `before` pages through them.
      */
-    @GetMapping("/chats/chat/{chatId}/messages")
+    @GetMapping("/api/v1/chats/{chatId}/messages")
     public List<MessageDto> getMessages(@PathVariable long chatId,
                                         @RequestParam(required = false) Long before,
                                         @RequestParam(required = false) Long after,
@@ -148,17 +147,8 @@ public class MessageController {
         return reactionService.toDtos(page);
     }
 
-    @GetMapping("/message/file/{fileName}")
-    public String getMessageImage(@PathVariable String fileName, @AuthenticationPrincipal User principal) {
-        Message message = messageRepo.findByTypeAndContent(MessageType.FILE, fileName)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found"));
-        chatService.assertMember(message.getChatId(), principal.getId());
-        assertNotDeleted(message);
-        return Base64.getEncoder().encodeToString(awsS3Client.getFile(fileName));
-    }
-
-    /** Same as the Base64 variant but streams the image bytes with their real content type. */
-    @GetMapping("/message/file/{fileName}/raw")
+    /** Streams the image bytes with their real content type. */
+    @GetMapping("/api/v1/messages/files/{fileName}")
     public ResponseEntity<byte[]> getMessageImageRaw(@PathVariable String fileName, @AuthenticationPrincipal User principal) {
         Message message = messageRepo.findByTypeAndContent(MessageType.FILE, fileName)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found"));

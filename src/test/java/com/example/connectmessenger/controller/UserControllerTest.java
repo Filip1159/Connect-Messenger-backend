@@ -10,7 +10,7 @@ class UserControllerTest extends ControllerComponentTest {
 
     @Test
     void searchIsCaseInsensitiveAndNeverExposesPasswords() {
-        as(janek()).get("/user/EWA")
+        as(janek()).get("/api/v1/users?query=EWA")
                 .then().statusCode(200)
                 .body("$", hasSize(1))
                 .body("[0].username", equalTo("ewa-nowak"))
@@ -19,11 +19,11 @@ class UserControllerTest extends ControllerComponentTest {
 
     @Test
     void searchExcludesTheCaller() {
-        as(janek()).get("/user/janek").then().statusCode(200).body("$", empty());
+        as(janek()).get("/api/v1/users?query=janek").then().statusCode(200).body("$", empty());
     }
 
     @Test
     void searchNeedsAtLeastTwoCharacters() {
-        as(janek()).get("/user/e").then().statusCode(200).body("$", empty());
+        as(janek()).get("/api/v1/users?query=e").then().statusCode(200).body("$", empty());
     }
 }

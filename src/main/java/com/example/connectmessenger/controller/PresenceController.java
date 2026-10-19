@@ -16,7 +16,7 @@ public class PresenceController {
     private final PresenceService presenceService;
 
     /** Current presence of the people you share a chat with; changes arrive on /topic/presence/{userId}. */
-    @GetMapping("/presence")
+    @GetMapping("/api/v1/presence")
     public List<PresenceDto> getPresence(@AuthenticationPrincipal User principal) {
         return presenceService.presenceOfContacts(principal.getId());
     }

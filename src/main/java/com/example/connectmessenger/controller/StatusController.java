@@ -30,7 +30,7 @@ public class StatusController {
     private final SimpMessagingTemplate template;
     private final CustomProperties properties;
 
-    @PutMapping("/status")
+    @PutMapping("/api/v1/status")
     public void updateStatus(@RequestBody StatusDto request, @AuthenticationPrincipal User principal) {
         if (request.id() == null || request.id().chatId() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "id.chatId is required");

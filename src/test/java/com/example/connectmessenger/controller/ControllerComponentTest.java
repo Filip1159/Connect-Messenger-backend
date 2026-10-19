@@ -277,7 +277,7 @@ abstract class ControllerComponentTest {
     static String login(String username, String password) {
         return RestAssured.given().contentType(ContentType.JSON)
                 .body("{\"username\":\"%s\",\"password\":\"%s\"}".formatted(username, password))
-                .post("/login")
+                .post("/api/v1/login")
                 .then().statusCode(200).extract().header("Authentication");
     }
 

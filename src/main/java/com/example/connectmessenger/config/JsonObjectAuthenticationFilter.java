@@ -1,35 +1,50 @@
 package com.example.connectmessenger.config;
 
-import com.auth0.jwt.JWT;
-import com.auth0.jwt.algorithms.Algorithm;
 import com.example.connectmessenger.model.User;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationServiceException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
-import java.util.Date;
+import java.time.Duration;
 
 public class JsonObjectAuthenticationFilter extends UsernamePasswordAuthenticationFilter {
 
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
-    private final Algorithm algorithm;
-    private final Long expirationTime;
+    private final TokenIssuer tokenIssuer;
+    private final LoginThrottle throttle;
 
-    public JsonObjectAuthenticationFilter(String secret,
-                                          Long expirationTime,
+    public JsonObjectAuthenticationFilter(TokenIssuer tokenIssuer,
+                                          LoginThrottle throttle,
                                           AuthenticationManager authenticationManager) {
-        this.algorithm = Algorithm.HMAC256(secret);
-        this.expirationTime = expirationTime;
+        this.tokenIssuer = tokenIssuer;
+        this.throttle = throttle;
         setAuthenticationManager(authenticationManager);
+        setRequiresAuthenticationRequestMatcher(
+                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/v1/login"));
+        setAuthenticationFailureHandler(JsonObjectAuthenticationFilter::onFailure);
+    }
+
+    private static void onFailure(HttpServletRequest request, HttpServletResponse response,
+                                  AuthenticationException exception) throws IOException {
+        if (exception instanceof TooManyLoginAttemptsException tooMany) {
+            response.setHeader("Retry-After", String.valueOf(Math.max(1, tooMany.getRetryAfter().toSeconds())));
+            response.sendError(429);
+        } else {
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        }
     }
 
     @Override
@@ -41,12 +56,24 @@ public class JsonObjectAuthenticationFilter extends UsernamePasswordAuthenticati
                 throw new AuthenticationServiceException("Missing credentials");
             }
 
+            String ip = request.getRemoteAddr();
+            String username = credentials.getUsername();
+            Duration wait = throttle.retryAfter(ip, username);
+            if (!wait.isZero()) throw new TooManyLoginAttemptsException(wait);
+
             UsernamePasswordAuthenticationToken token = new UsernamePasswordAuthenticationToken(
-                    credentials.getUsername(),
+                    username,
                     credentials.getPassword()
             );
 
-            return getAuthenticationManager().authenticate(token);
+            try {
+                Authentication result = getAuthenticationManager().authenticate(token);
+                throttle.recordSuccess(username);
+                return result;
+            } catch (BadCredentialsException e) {
+                throttle.recordFailure(ip, username);
+                throw e;
+            }
         } catch (IOException | JacksonException e) {
             throw new AuthenticationServiceException("Malformed login request", e);
         }
@@ -61,13 +88,6 @@ public class JsonObjectAuthenticationFilter extends UsernamePasswordAuthenticati
 
         User user = (User) authResult.getPrincipal();
 
-        String token = JWT.create()
-                .withClaim("id", user.getId())
-                .withClaim("username", user.getUsername())
-                .withClaim("name", user.getName())
-                .withClaim("surname", user.getSurname())
-                .withExpiresAt(new Date(System.currentTimeMillis() + expirationTime))
-                .sign(algorithm);
-        response.addHeader("Authentication", "Bearer " + token);
+        response.addHeader("Authentication", "Bearer " + tokenIssuer.issue(user));
     }
 }

@@ -10,7 +10,7 @@ class PresenceControllerTest extends ControllerComponentTest {
 
     @Test
     void presenceListsContactsOfTheUser() {
-        as(janek()).get("/presence")
+        as(janek()).get("/api/v1/presence")
                 .then().statusCode(200)
                 .body("userId", containsInAnyOrder(2, 3, 4))
                 .body("online", everyItem(equalTo(false)));
@@ -18,6 +18,6 @@ class PresenceControllerTest extends ControllerComponentTest {
 
     @Test
     void presenceRequiresAuthentication() {
-        anonymous().get("/presence").then().statusCode(401);
+        anonymous().get("/api/v1/presence").then().statusCode(401);
     }
 }

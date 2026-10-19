@@ -44,7 +44,7 @@ class WebsocketAuthChannelInterceptorTest {
     @BeforeEach
     void setUp() {
         interceptor = new WebsocketAuthChannelInterceptor(
-                new CustomProperties(SECRET, 3600000, List.of(), "bucket", "eu-central-1", true), userService, chatService);
+                new CustomProperties(SECRET, 3600000, List.of(), "bucket", "eu-central-1", true, 5, java.time.Duration.ofMinutes(15), java.time.Duration.ofMinutes(15)), userService, chatService);
         user = new User();
         user.setId(1L);
         user.setUsername("janek007");

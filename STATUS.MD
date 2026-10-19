@@ -161,26 +161,26 @@ Notes on what was built (all in `connect-messenger-react`; the backend needed no
 - **Not covered by automated tests:** a real browser notification (the e2e tests replace `Notification`) and the sound; the real websocket (as before).
 
 
-## 5. Security and platform (backend-heavy)
+## 5. Security and platform (backend-heavy) — MOSTLY DONE (open: 5.2, rotation in 5.1, refresh tokens in 5.3)
 
-| # | Item | Details | Size |
-|---|------|---------|------|
-| 5.1 | **Rotate secrets** | The old JWT secret (`vegetables`) and root/root DB credentials are still in git history. Rotate in every real environment; consider history scrubbing. | S |
-| 5.2 | **Typed websocket events** | Message, status, chat, deletion and presence currently differ only by field presence. Introduce `{type, payload}` envelopes (a topic per concern is already used for status). Do it together with 2.4. | M (FE+BE) |
-| 5.3 | **Token strategy** | The token lives in `localStorage` and is sent without a `Bearer` scheme. Add refresh tokens or sliding expiry plus `Authorization: Bearer`; evaluate an httpOnly cookie. Keep the legacy header accepted until the frontend migrates. | M (FE+BE) |
-| 5.4 | **Login rate limiting / lockout** | Throttle `/login` by IP and username to slow brute force. | S |
-| 5.5 | **Persistence tests** | Repositories are mocked in all tests, so JPA mappings and the paging query are untested. Add Testcontainers MySQL tests (CI already has Docker). | M |
-| 5.6 | **Real S3 and STOMP integration tests** | The in-memory S3 and the websocket handshake are only unit-tested. Add an end-to-end websocket test (real STOMP client against `RANDOM_PORT`) and a LocalStack-backed S3 test. | M |
-| 5.7 | **Database migrations** | `ddl-auto=update` on the default profile; adopt Flyway/Liquibase before adding new columns (needed by 2.4, 3.3, 3.5; the columns of sections 2 and 3 are listed in their notes). | M |
-| 5.8 | **Observability** | Actuator health and metrics, structured logs, request correlation id; health check used by deployment. | S |
-| 5.9 | **Containerisation and deployment** | Dockerfile and docker-compose (backend + MySQL + frontend); CD workflow after CI. | M |
-| 5.10 | **REST path cleanup** | `/chats/{userId}`, `/chats/chat/{id}/messages`, `/message`, `/user/{query}` are inconsistent (singular/plural, a query in the path). Introduce `/api/v1/...` and a deprecation window after the frontend migrates. | M (FE+BE) |
+| # | Item | Status | Notes | Size |
+|---|------|--------|-------|------|
+| 5.1 | **Rotate secrets** | guard DONE, rotation is yours | The app refuses to start with the leaked JWT secret `vegetables` (`CustomProperties`), and README ("Rotating secrets") lists what to change. Still to do by hand in every real environment: new `JWT_SECRET`, DB password, AWS keys; consider scrubbing the git history. | S |
+| 5.2 | **Typed websocket events** | OPEN | Message, status, chat, deletion and presence currently differ only by field presence. Introduce `{type, payload}` envelopes (a topic per concern is already used for status). FE+BE, together with the legacy status broadcast removal. | M (FE+BE) |
+| 5.3 | **Token strategy** | sliding expiry DONE | The token was already sent as `Bearer <jwt>` (the stored value is the whole header). Now a token past half of its life is replaced: the response carries a fresh one in `Authentication` and `api/http.ts` stores it (only while signed in), so an active session does not end after an hour. Still open: refresh tokens / revocation, and an httpOnly cookie instead of `localStorage`. | M (FE+BE) |
+| 5.4 | **Login rate limiting / lockout** | DONE | `LoginThrottle`: 5 failures in 15 min lock the username and, separately, the IP for 15 min; `429` + `Retry-After`. In memory, so per instance; behind a proxy set `SERVER_FORWARD_HEADERS_STRATEGY=native`. Registration (`POST /users`) is still not throttled. | S |
+| 5.5 | **Persistence tests** | DONE | `persistence/PersistenceIT` on MySQL 8.4 (Testcontainers): paging, catch-up, unread counts, search, direct-chat lookup, unique constraints, emoji round trip, adopting a pre-Flyway database. Skipped when there is no Docker. | M |
+| 5.6 | **Real S3 and STOMP integration tests** | DONE | `WebsocketIT` (real STOMP client over SockJS against `RANDOM_PORT`: delivery, new-chat push, a stranger gets nothing, bad token refused) and `S3IT` (`AwsS3Client` against LocalStack). | M |
+| 5.7 | **Database migrations** | DONE | Flyway, `V1__baseline.sql` is the schema of sections 0-4; `ddl-auto=none` (the `dev` profile keeps H2 + `create`). The ITs run with `validate`, so drift between migrations and entities fails CI. A database from the `ddl-auto=update` era is baselined at V1; if it predates sections 2-3 run `docs/pre-flyway-upgrade.sql` first. | M |
+| 5.8 | **Observability** | DONE | Actuator: `/actuator/health[/liveness,/readiness]` public (no details), `/actuator/metrics` behind login; `X-Request-Id` on every response and in every log line (MDC); JSON logs with `LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs` (set in compose). No Prometheus registry yet. | S |
+| 5.9 | **Containerisation and deployment** | image DONE, deployment open | `Dockerfile` (multi-stage, JRE, non-root, healthcheck), `docker-compose.yml` (MySQL + backend, `--profile frontend` adds the frontend, which has its own `Dockerfile` + `nginx.conf`), and CI publishes `ghcr.io/<repo>:latest|<sha>` from master. No deploy step: it depends on where this runs. | M |
+| 5.10 | **REST path cleanup** | DONE | The API is under `/api/v1`: `GET /chats` (the caller's chats, no user id in the path), `/chats/{id}`, `/chats/{id}/messages|settings|members|admins`, `/messages`, `/messages/{id}[/reaction]`, `/messages/files/{name}` (raw bytes), `GET /users?query=` (search), `/users/me...`, `/status`, `/presence`, `/login`. The former unversioned paths and the Base64 file endpoint are removed (404); the frontend uses `/api/v1` only. The websocket (`/websocket`, `/topic/**`, `/app/**`) is not versioned. Anyone else calling the old paths (other clients, scripts) has to move. | M (FE+BE) |
 
 ## 6. Frontend quality (FE)
 
 | # | Item | Details | Size |
 |---|------|---------|------|
-| 6.1 | **Typed API layer** | `ChatAPI` is a class with static state. Move to RTK Query (already installed with Redux Toolkit) or a small hooks layer: caching, error and loading state, abort handling. | M |
+| 6.1 | **Typed API layer** | Prepared: `ChatAPI` (a class of statics mixing auth, REST and the websocket) is gone. `src/api/` has `http.ts` (axios, token, 401), `session.ts`, `rest/{chats,messages,users}.ts` (plain functions, contract-tested), `socket.ts` (a `createSocket()` factory), and `store/chats/chatSync.ts` (plain, tested without React) behind a thin `useChatSync`. Still open: caching, error and loading state and abort handling, e.g. RTK Query on top of `rest/*`. | M |
 | 6.2 | **Contract tests** | Share an OpenAPI spec (springdoc on the backend) and generate TS types so `types.ts` cannot drift from the DTOs. | M (FE+BE) |
 | 6.3 | **More e2e coverage** | Playwright covers login and basic chat with a mocked backend; add scenarios for image sending, creating a chat, reconnect, expired token. Optionally run e2e against the `dev` profile (H2 + in-memory S3) in CI. | M |
 | 6.4 | **Performance of long conversations** | List virtualization once paging (0.3) is in; memoize `Message`, avoid recomputing `DateFormatter` for every row on each render. | S–M |

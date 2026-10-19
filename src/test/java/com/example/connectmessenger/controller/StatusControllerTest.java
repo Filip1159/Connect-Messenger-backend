@@ -19,7 +19,7 @@ class StatusControllerTest extends ControllerComponentTest {
     @Test
     void statusCanBeUpdatedForYourselfInYourOwnChat() {
         asJson(janek(), "{\"id\":{\"userId\":1,\"chatId\":1},\"messageId\":1,\"time\":\"2021-07-07T22:24:59\"}")
-                .put("/status").then().statusCode(200);
+                .put("/api/v1/status").then().statusCode(200);
 
         verify(statusRepo).save(any(Status.class));
         verify(template).convertAndSend(eq("/topic/status/1"), any(StatusDto.class));
@@ -28,16 +28,16 @@ class StatusControllerTest extends ControllerComponentTest {
 
     @Test
     void statusCannotBeUpdatedForSomeoneElseOrInForeignChat() {
-        asJson(janek(), "{\"id\":{\"userId\":2,\"chatId\":1},\"messageId\":1}").put("/status").then().statusCode(403);
-        asJson(janek(), "{\"id\":{\"userId\":1,\"chatId\":3},\"messageId\":18}").put("/status").then().statusCode(403);
-        asJson(janek(), "{}").put("/status").then().statusCode(400);
+        asJson(janek(), "{\"id\":{\"userId\":2,\"chatId\":1},\"messageId\":1}").put("/api/v1/status").then().statusCode(403);
+        asJson(janek(), "{\"id\":{\"userId\":1,\"chatId\":3},\"messageId\":18}").put("/api/v1/status").then().statusCode(403);
+        asJson(janek(), "{}").put("/api/v1/status").then().statusCode(400);
 
         verify(statusRepo, never()).save(any());
     }
 
     @Test
     void userIdAndTimeAreOptionalAndTakenFromTheServer() {
-        asJson(janek(), "{\"id\":{\"chatId\":1},\"messageId\":1}").put("/status").then().statusCode(200);
+        asJson(janek(), "{\"id\":{\"chatId\":1},\"messageId\":1}").put("/api/v1/status").then().statusCode(200);
 
         var saved = org.mockito.ArgumentCaptor.forClass(Status.class);
         verify(statusRepo).save(saved.capture());
@@ -47,8 +47,8 @@ class StatusControllerTest extends ControllerComponentTest {
 
     @Test
     void statusMustPointAtAnExistingMessageOfThatChat() {
-        asJson(janek(), "{\"id\":{\"userId\":1,\"chatId\":1},\"messageId\":13}").put("/status").then().statusCode(400);
-        asJson(janek(), "{\"id\":{\"userId\":1,\"chatId\":1},\"messageId\":99999}").put("/status").then().statusCode(404);
+        asJson(janek(), "{\"id\":{\"userId\":1,\"chatId\":1},\"messageId\":13}").put("/api/v1/status").then().statusCode(400);
+        asJson(janek(), "{\"id\":{\"userId\":1,\"chatId\":1},\"messageId\":99999}").put("/api/v1/status").then().statusCode(404);
 
         verify(statusRepo, never()).save(any());
     }

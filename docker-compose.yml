@@ -1,0 +1,54 @@
+# Backend + MySQL:           docker compose up --build
+# plus the frontend:         docker compose --profile frontend up --build   (expects ../connect-messenger-react)
+# Then open http://localhost:3000 (frontend) or http://localhost:8080/actuator/health (backend).
+#
+# Secrets come from the environment (or a `.env` file next to this one, which is git-ignored):
+#   MYSQL_PASSWORD  - password of the application's database user (required)
+#   JWT_SECRET      - at least 32 random characters, e.g. `openssl rand -hex 32` (required)
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: connectmessenger
+      MYSQL_USER: connect
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u connect -p$$MYSQL_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:mysql://db:3306/connectmessenger
+      DB_USERNAME: connect
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (openssl rand -hex 32)}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      # JSON logs with the request id, ready for a log collector
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+      # chat images go to S3: pass AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / S3_BUCKET / AWS_REGION too
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      S3_BUCKET: ${S3_BUCKET:-connect-messenger}
+      AWS_REGION: ${AWS_REGION:-eu-central-1}
+    ports:
+      - "8080:8080"
+
+  frontend:
+    profiles: [frontend]
+    build: ../connect-messenger-react
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  db-data:

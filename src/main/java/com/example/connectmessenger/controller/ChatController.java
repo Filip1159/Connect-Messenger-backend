@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -23,7 +22,6 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 
 @RestController
-@RequestMapping("/chats")
 @RequiredArgsConstructor
 public class ChatController {
     public record RenameRequest(String name) {
@@ -38,27 +36,28 @@ public class ChatController {
     private final ChatService chatService;
     private final ChatNotifier notifier;
 
-    @GetMapping("/{userId}")
-    public List<ChatDto> getChatsByUserId(@PathVariable Long userId,
-                                          @RequestParam(defaultValue = "true") boolean includeMessages,
-                                          @AuthenticationPrincipal User principal) {
-        if (!principal.getId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot read another user's chats");
-        }
+    /** The chats of the signed-in user. */
+    @GetMapping("/api/v1/chats")
+    public List<ChatDto> getMyChats(@RequestParam(defaultValue = "true") boolean includeMessages,
+                                    @AuthenticationPrincipal User principal) {
+        return chatsOf(principal.getId(), includeMessages);
+    }
+
+    private List<ChatDto> chatsOf(Long userId, boolean includeMessages) {
         var chats = chatService.getUserChats(userId);
         if (includeMessages) return chats;
-        // history is loaded page by page from /chats/chat/{id}/messages
+        // history is loaded page by page from /api/v1/chats/{id}/messages
         return chats.stream().map(c -> c.toBuilder().messages(List.of()).build()).toList();
     }
 
-    @GetMapping("/chat/{id}")
+    @GetMapping("/api/v1/chats/{id}")
     public ChatDto getChatById(@PathVariable Long id, @AuthenticationPrincipal User principal) {
         chatService.assertMember(id, principal.getId());
         return chatService.getChatById(id, principal.getId());
     }
 
     /** Creates a chat; asking for a 1:1 chat that already exists returns it instead of making another. */
-    @PostMapping
+    @PostMapping("/api/v1/chats")
     public ChatDto create(@RequestBody CreateChatRequest request, @AuthenticationPrincipal User principal) {
         if (request.userIds() == null || !request.userIds().contains(principal.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot create a chat you are not part of");
@@ -71,7 +70,7 @@ public class ChatController {
     }
 
     /** Archive / mute: personal, nobody else is told. */
-    @PatchMapping("/chat/{id}/settings")
+    @PatchMapping("/api/v1/chats/{id}/settings")
     public ChatDto updateSettings(@PathVariable Long id, @RequestBody SettingsRequest request,
                                   @AuthenticationPrincipal User principal) {
         chatService.assertMember(id, principal.getId());
@@ -79,7 +78,7 @@ public class ChatController {
         return chatService.getChatById(id, principal.getId());
     }
 
-    @PatchMapping("/chat/{id}")
+    @PatchMapping("/api/v1/chats/{id}")
     public ChatDto rename(@PathVariable Long id, @RequestBody RenameRequest request,
                           @AuthenticationPrincipal User principal) {
         chatService.assertMember(id, principal.getId());
@@ -88,7 +87,7 @@ public class ChatController {
         return chatService.getChatById(id, principal.getId());
     }
 
-    @PostMapping("/chat/{id}/members")
+    @PostMapping("/api/v1/chats/{id}/members")
     public ChatDto addMembers(@PathVariable Long id, @RequestBody AddMembersRequest request,
                               @AuthenticationPrincipal User principal) {
         chatService.assertMember(id, principal.getId());
@@ -98,7 +97,7 @@ public class ChatController {
     }
 
     /** An admin removes a member; removing yourself is leaving the group. */
-    @DeleteMapping("/chat/{id}/members/{userId}")
+    @DeleteMapping("/api/v1/chats/{id}/members/{userId}")
     public void removeMember(@PathVariable Long id, @PathVariable Long userId, @AuthenticationPrincipal User principal) {
         chatService.assertMember(id, principal.getId());
         User removed = chatService.removeMember(id, principal.getId(), userId);
@@ -106,12 +105,12 @@ public class ChatController {
         notifier.chatChanged(id);
     }
 
-    @PutMapping("/chat/{id}/admins/{userId}")
+    @PutMapping("/api/v1/chats/{id}/admins/{userId}")
     public ChatDto makeAdmin(@PathVariable Long id, @PathVariable Long userId, @AuthenticationPrincipal User principal) {
         return changeAdmin(id, userId, true, principal);
     }
 
-    @DeleteMapping("/chat/{id}/admins/{userId}")
+    @DeleteMapping("/api/v1/chats/{id}/admins/{userId}")
     public ChatDto removeAdmin(@PathVariable Long id, @PathVariable Long userId, @AuthenticationPrincipal User principal) {
         return changeAdmin(id, userId, false, principal);
     }

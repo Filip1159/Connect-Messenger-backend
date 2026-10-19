@@ -30,6 +30,7 @@ jobs:
       - name: Check formatting
         run: sh ./gradlew spotlessCheck
 
+      # includes the Testcontainers tests (MySQL, LocalStack, a real STOMP client): the runner has Docker
       - name: Build and test
         run: sh ./gradlew build
 
@@ -39,3 +40,33 @@ jobs:
         with:
           name: test-reports
           path: build/reports/tests/test
+
+  # master only: publish the image that docker-compose.yml / a deployment pulls
+  image:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
