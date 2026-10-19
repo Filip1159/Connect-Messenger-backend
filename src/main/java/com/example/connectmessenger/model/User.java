@@ -2,6 +2,7 @@ package com.example.connectmessenger.model;
 
 import jakarta.persistence.*;
 import lombok.EqualsAndHashCode;
+import org.hibernate.annotations.Immutable;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
@@ -26,14 +27,19 @@ public class User implements UserDetails {
     private String username;
     private String name;
     private String surname;
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private String password;
 
     @ManyToMany
+    @Immutable  // `status` rows are written through the Status entity only
     @JoinTable(
             name = "status",
             joinColumns = @JoinColumn(name = "userId"),
             inverseJoinColumns = @JoinColumn(name = "chatId")
     )
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private List<Chat> chats;
 
     @Override

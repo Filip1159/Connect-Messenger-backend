@@ -21,13 +21,19 @@ public class Chat {
     private Long id;
 
     @OneToMany(fetch = FetchType.EAGER)
-    @JoinColumn(name = "chatId")
+    @JoinColumn(name = "chatId", insertable = false, updatable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private List<Message> messages;
 
     @ManyToMany(mappedBy = "chats")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     List<User> users;
 
     @OneToMany
-    @JoinColumn(name = "chatId")
+    @JoinColumn(name = "chatId", insertable = false, updatable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     List<Status> status;
 }

@@ -1,8 +1,8 @@
-insert into users (username, name, surname, password) values
-('janek007', 'Jan', 'Kowalski', '{bcrypt}$2y$12$yJKwJH8SWLBGSvPiggXQdelhMuZNhbQI3WIrNltRN1cE9JcNoNRVi'),  -- qwerty
-('ewa-nowak', 'Ewa', 'Nowak', '{bcrypt}$2y$12$s8GQ5Prs915abrGV/WxCquQuas1xvnqaDZ2iQrLzAKp2TthdfEBgK'),  -- abcd
-('mrsmith', 'John', 'Smith', '{bcrypt}$2y$12$CQtho0.NJ6JCbh4PE.eAUOHPfj9OhP3PNA9KxU5jj.Gmdrd.U4wa6'),  -- hahaxd
-('grace01', 'Grace', 'Thomson', '{bcrypt}$2y$12$H0pQUvf9NWQnN.A9p3cdWum0IHLGfKCCkBagoCdISAUT0hjfMq28a');  -- 1234
+insert into users (id, username, name, surname, password) values
+(1, 'janek007', 'Jan', 'Kowalski', '{bcrypt}$2y$12$yJKwJH8SWLBGSvPiggXQdelhMuZNhbQI3WIrNltRN1cE9JcNoNRVi'),  -- qwerty
+(2, 'ewa-nowak', 'Ewa', 'Nowak', '{bcrypt}$2y$12$s8GQ5Prs915abrGV/WxCquQuas1xvnqaDZ2iQrLzAKp2TthdfEBgK'),  -- abcd
+(3, 'mrsmith', 'John', 'Smith', '{bcrypt}$2y$12$CQtho0.NJ6JCbh4PE.eAUOHPfj9OhP3PNA9KxU5jj.Gmdrd.U4wa6'),  -- hahaxd
+(4, 'grace01', 'Grace', 'Thomson', '{bcrypt}$2y$12$H0pQUvf9NWQnN.A9p3cdWum0IHLGfKCCkBagoCdISAUT0hjfMq28a');  -- 1234
 
 insert into chats (id) values (1), (2), (3), (4);
 

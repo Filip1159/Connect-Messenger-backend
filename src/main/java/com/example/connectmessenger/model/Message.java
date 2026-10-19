@@ -2,7 +2,6 @@ package com.example.connectmessenger.model;
 
 import jakarta.persistence.*;
 import lombok.*;
-import org.springframework.format.annotation.DateTimeFormat;
 
 import java.time.LocalDateTime;
 
@@ -22,7 +21,6 @@ public class Message {
     private Long chatId;
     private Long userId;
 
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
     private LocalDateTime time;
 
     @Enumerated(EnumType.STRING)

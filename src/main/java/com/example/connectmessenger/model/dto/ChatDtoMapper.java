@@ -2,6 +2,7 @@ package com.example.connectmessenger.model.dto;
 
 import com.example.connectmessenger.model.Chat;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -12,12 +13,17 @@ public class ChatDtoMapper {
                 .map(ChatDtoMapper::mapToChatDto)
                 .collect(Collectors.toList());
     }
+    // copies lazy Hibernate collections while the transaction is open, so they can be serialized later
+    private static <T> List<T> copyOf(List<T> list) {
+        return list == null ? List.of() : new ArrayList<>(list);
+    }
+
     public static ChatDto mapToChatDto(Chat c) {
         return ChatDto.builder()
                 .id(c.getId())
-                .messages(c.getMessages())
+                .messages(copyOf(c.getMessages()))
                 .users(UserDtoMapper.mapToUserDtos(c.getUsers()))
-                .status(c.getStatus())
+                .status(copyOf(c.getStatus()))
                 .build();
     }
 }

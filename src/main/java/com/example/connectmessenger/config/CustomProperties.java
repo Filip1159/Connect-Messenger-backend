@@ -1,17 +1,21 @@
 package com.example.connectmessenger.config;
 
-import lombok.Getter;
-import lombok.Setter;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.validation.annotation.Validated;
 
-@Configuration
+import java.util.List;
+
 @ConfigurationProperties(prefix = "custom")
 @Validated
-@Getter
-@Setter
-public class CustomProperties {
-    private long JwtExpirationTime;
-    private String secret;
+public record CustomProperties(
+        @NotBlank @Size(min = 32, message = "JWT secret must be at least 32 characters") String secret,
+        @Positive long jwtExpirationTime,
+        @NotEmpty List<String> allowedOrigins,
+        @NotBlank String s3Bucket,
+        @NotBlank String awsRegion
+) {
 }

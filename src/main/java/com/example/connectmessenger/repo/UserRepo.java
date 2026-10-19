@@ -11,5 +11,5 @@ import java.util.Optional;
 @Repository
 public interface UserRepo extends JpaRepository<User, Long> {
     Optional<User> getUserByUsername(String username);
-    List<User> getAllByUsernameContainingOrNameContainingOrSurnameContaining(String text1, String text2, String text3);
+    List<User> findTop20ByUsernameContainingIgnoreCaseOrNameContainingIgnoreCaseOrSurnameContainingIgnoreCase(String text1, String text2, String text3);
 }

@@ -2,6 +2,7 @@ package com.example.connectmessenger.config;
 
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
+import com.auth0.jwt.exceptions.JWTVerificationException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,6 +12,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -39,10 +41,16 @@ public class JwtAuthorizationFilter extends OncePerRequestFilter {
         }
 
         token = token.replace("Bearer ", "");
-        String username = JWT.require(Algorithm.HMAC256(secret))
-                .build()
-                .verify(token)
-                .getClaim("username").asString();
+        String username;
+        try {
+            username = JWT.require(Algorithm.HMAC256(secret))
+                    .build()
+                    .verify(token)
+                    .getClaim("username").asString();
+        } catch (JWTVerificationException e) {
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+            return;
+        }
 
         if (username == null) {
             /* user received through token doesn't exist */
@@ -50,9 +58,15 @@ public class JwtAuthorizationFilter extends OncePerRequestFilter {
             return;
         }
 
-        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+        UserDetails userDetails;
+        try {
+            userDetails = userDetailsService.loadUserByUsername(username);
+        } catch (UsernameNotFoundException | java.util.NoSuchElementException e) {
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+            return;
+        }
         Authentication auth = new UsernamePasswordAuthenticationToken(
-                username,
+                userDetails,
                 null,
                 userDetails.getAuthorities());
 

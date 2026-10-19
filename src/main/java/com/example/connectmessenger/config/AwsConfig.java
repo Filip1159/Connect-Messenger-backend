@@ -1,21 +1,19 @@
 package com.example.connectmessenger.config;
 
-import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
-import com.amazonaws.regions.Regions;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
 
 @Configuration
 public class AwsConfig {
 
     @Bean
-    public AmazonS3 s3Client() {
-        return AmazonS3ClientBuilder
-                .standard()
-                .withRegion(Regions.EU_CENTRAL_1)
-                .withCredentials(new EnvironmentVariableCredentialsProvider())
+    public S3Client s3Client(CustomProperties properties) {
+        return S3Client.builder()
+                .region(Region.of(properties.awsRegion()))
+                .credentialsProvider(DefaultCredentialsProvider.builder().build())
                 .build();
     }
 }

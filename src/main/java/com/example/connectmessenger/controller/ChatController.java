@@ -5,8 +5,11 @@ import com.example.connectmessenger.model.dto.ChatDto;
 import com.example.connectmessenger.model.dto.CreateChatRequest;
 import com.example.connectmessenger.service.ChatService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -18,22 +21,26 @@ public class ChatController {
     private final SimpMessagingTemplate template;
 
     @GetMapping("/{userId}")
-    public List<ChatDto> getChatsByUserId(@PathVariable Long userId) {
-        User u = new User();
-        u.setId(userId);
-        return chatService.getUserChats(u);
+    public List<ChatDto> getChatsByUserId(@PathVariable Long userId, @AuthenticationPrincipal User principal) {
+        if (!principal.getId().equals(userId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot read another user's chats");
+        }
+        return chatService.getUserChats(userId);
     }
 
     @GetMapping("/chat/{id}")
-    public ChatDto getChatById(@PathVariable Long id) {
+    public ChatDto getChatById(@PathVariable Long id, @AuthenticationPrincipal User principal) {
+        chatService.assertMember(id, principal.getId());
         return chatService.getChatById(id);
     }
 
     @PostMapping
-    ChatDto create(@RequestBody CreateChatRequest request) {
+    ChatDto create(@RequestBody CreateChatRequest request, @AuthenticationPrincipal User principal) {
+        if (request.userIds() == null || !request.userIds().contains(principal.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot create a chat you are not part of");
+        }
         var createdChat = chatService.createChat(request);
-        template.convertAndSend("/topic/new-chats/" + request.userIds().get(0), createdChat);
-        template.convertAndSend("/topic/new-chats/" + request.userIds().get(1), createdChat);
+        request.userIds().forEach(id -> template.convertAndSend("/topic/new-chats/" + id, createdChat));
         return createdChat;
     }
 }
