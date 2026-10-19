@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -56,8 +57,8 @@ public class ChatService {
 
         var newChat = Chat.builder()
                 .users(users)
-                .messages(List.of())
-                .status(List.of())
+                .messages(new ArrayList<>())
+                .status(new ArrayList<>())
                 .build();
         var savedChat = chatRepo.save(newChat);
 

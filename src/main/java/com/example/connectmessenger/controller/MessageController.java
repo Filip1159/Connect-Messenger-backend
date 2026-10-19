@@ -4,6 +4,7 @@ import com.example.connectmessenger.model.Message;
 import com.example.connectmessenger.model.MessageType;
 import com.example.connectmessenger.model.User;
 import com.example.connectmessenger.model.dto.CreateMessageRequest;
+import com.example.connectmessenger.model.dto.MessageDto;
 import com.example.connectmessenger.repo.MessageRepo;
 import com.example.connectmessenger.service.AwsS3Client;
 import com.example.connectmessenger.service.ChatService;
@@ -33,25 +34,26 @@ public class MessageController {
     private final SimpMessagingTemplate template;
 
     @GetMapping("/message/{id}")
-    public Message getMessageById(@PathVariable long id, @AuthenticationPrincipal User principal) {
+    public MessageDto getMessageById(@PathVariable long id, @AuthenticationPrincipal User principal) {
         Message message = messageService.getMessageById(id);
         chatService.assertMember(message.getChatId(), principal.getId());
-        return message;
+        return MessageDto.from(message);
     }
 
     @PostMapping(value = "/message", consumes = MULTIPART_FORM_DATA_VALUE)
-    public Message postMessage(CreateMessageRequest message, @AuthenticationPrincipal User principal) {
+    public MessageDto postMessage(CreateMessageRequest message, @AuthenticationPrincipal User principal) {
         if (!principal.getId().equals(message.userId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot post as another user");
         }
         chatService.assertMember(message.chatId(), principal.getId());
         Message added = messageService.addMessage(message);
-        template.convertAndSend("/topic/messages/" + added.getChatId(), added);
-        return added;
+        var dto = MessageDto.from(added);
+        template.convertAndSend("/topic/messages/" + added.getChatId(), dto);
+        return dto;
     }
 
     @GetMapping("/message/file/{fileName}")
-    String getMessageImage(@PathVariable String fileName, @AuthenticationPrincipal User principal) {
+    public String getMessageImage(@PathVariable String fileName, @AuthenticationPrincipal User principal) {
         Message message = messageRepo.findByTypeAndContent(MessageType.FILE, fileName)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found"));
         chatService.assertMember(message.getChatId(), principal.getId());

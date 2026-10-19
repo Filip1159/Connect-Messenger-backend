@@ -2,6 +2,7 @@ plugins {
 	id 'java'
 	id 'org.springframework.boot' version '4.1.1'
 	id 'io.spring.dependency-management' version '1.1.7'
+	id 'com.diffplug.spotless' version '8.10.4'
 }
 
 group = 'com.example'
@@ -45,4 +46,20 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+spotless {
+	// conservative rules that match the existing style (4 spaces, no big reformat); `./gradlew spotlessApply` fixes violations
+	java {
+		target 'src/*/java/**/*.java'
+		removeUnusedImports()
+		trimTrailingWhitespace()
+		leadingTabsToSpaces(4)
+		endWithNewline()
+	}
+	format('misc') {
+		target '*.gradle', '.gitignore', 'src/**/*.properties'
+		trimTrailingWhitespace()
+		endWithNewline()
+	}
 }

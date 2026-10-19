@@ -5,7 +5,7 @@ Just a small project, which helped me learn React & Java Spring Boot framework <
 
 ## Running locally
 
-Quick start (no MySQL, no env vars): `SPRING_PROFILES_ACTIVE=dev sh ./gradlew bootRun` - runs on in-memory H2 seeded from `data.sql`.
+Quick start (no MySQL, no env vars): `SPRING_PROFILES_ACTIVE=dev sh ./gradlew bootRun` - runs on in-memory H2 seeded from `data.sql`, with chat images kept in memory instead of S3.
 
 For a real database (default profile):
 

@@ -23,14 +23,13 @@ public class JsonObjectAuthenticationFilter extends UsernamePasswordAuthenticati
 
     private final Algorithm algorithm;
     private final Long expirationTime;
-    private final AuthenticationManager authenticationManager;
 
     public JsonObjectAuthenticationFilter(String secret,
                                           Long expirationTime,
                                           AuthenticationManager authenticationManager) {
         this.algorithm = Algorithm.HMAC256(secret);
         this.expirationTime = expirationTime;
-        this.authenticationManager = authenticationManager;
+        setAuthenticationManager(authenticationManager);
     }
 
     @Override
@@ -47,7 +46,7 @@ public class JsonObjectAuthenticationFilter extends UsernamePasswordAuthenticati
                     credentials.getPassword()
             );
 
-            return authenticationManager.authenticate(token);
+            return getAuthenticationManager().authenticate(token);
         } catch (IOException | JacksonException e) {
             throw new AuthenticationServiceException("Malformed login request", e);
         }

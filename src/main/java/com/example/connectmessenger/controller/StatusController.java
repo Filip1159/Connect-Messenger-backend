@@ -3,6 +3,7 @@ package com.example.connectmessenger.controller;
 import com.example.connectmessenger.model.Message;
 import com.example.connectmessenger.model.Status;
 import com.example.connectmessenger.model.User;
+import com.example.connectmessenger.model.dto.StatusDto;
 import com.example.connectmessenger.repo.MessageRepo;
 import com.example.connectmessenger.repo.StatusRepo;
 import com.example.connectmessenger.service.ChatService;
@@ -25,22 +26,22 @@ public class StatusController {
     private final SimpMessagingTemplate template;
 
     @PutMapping("/status")
-    public void updateStatus(@RequestBody Status status, @AuthenticationPrincipal User principal) {
-        if (status.getId() == null || !principal.getId().equals(status.getId().getUserId())) {
+    public void updateStatus(@RequestBody StatusDto request, @AuthenticationPrincipal User principal) {
+        if (request.id() == null || !principal.getId().equals(request.id().userId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot update another user's status");
         }
-        Long chatId = status.getId().getChatId();
+        Long chatId = request.id().chatId();
         chatService.assertMember(chatId, principal.getId());
 
-        if (status.getMessageId() != null) {
-            Message displayed = messageRepo.findById(status.getMessageId())
+        if (request.messageId() != null) {
+            Message displayed = messageRepo.findById(request.messageId())
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
             if (!chatId.equals(displayed.getChatId())) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Message does not belong to this chat");
             }
         }
 
-        statusRepo.save(status);
-        template.convertAndSend("/topic/messages/" + chatId, status);
+        Status saved = statusRepo.save(request.toEntity());
+        template.convertAndSend("/topic/messages/" + chatId, StatusDto.from(saved));
     }
 }

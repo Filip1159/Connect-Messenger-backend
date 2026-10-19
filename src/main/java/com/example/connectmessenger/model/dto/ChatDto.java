@@ -1,7 +1,5 @@
 package com.example.connectmessenger.model.dto;
 
-import com.example.connectmessenger.model.Message;
-import com.example.connectmessenger.model.Status;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -11,7 +9,7 @@ import java.util.List;
 @Builder
 public class ChatDto {
     private final Long id;
-    private final List<Message> messages;
+    private final List<MessageDto> messages;
     private final List<UserDto> users;
-    private final List<Status> status;  // statuses ???
+    private final List<StatusDto> status;
 }

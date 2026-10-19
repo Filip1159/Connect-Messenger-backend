@@ -21,9 +21,9 @@ public class ChatDtoMapper {
     public static ChatDto mapToChatDto(Chat c) {
         return ChatDto.builder()
                 .id(c.getId())
-                .messages(copyOf(c.getMessages()))
+                .messages(copyOf(c.getMessages()).stream().map(MessageDto::from).toList())
                 .users(UserDtoMapper.mapToUserDtos(c.getUsers()))
-                .status(copyOf(c.getStatus()))
+                .status(copyOf(c.getStatus()).stream().map(StatusDto::from).toList())
                 .build();
     }
 }

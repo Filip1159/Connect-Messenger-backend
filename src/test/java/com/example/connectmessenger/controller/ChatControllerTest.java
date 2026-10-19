@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.hasItem;
@@ -72,5 +73,26 @@ class ChatControllerTest extends ControllerComponentTest {
         asJson(janek(), "{\"userIds\":[1]}").post("/chats").then().statusCode(400);
         asJson(janek(), "{\"userIds\":[1,1]}").post("/chats").then().statusCode(400);
         asJson(janek(), "{\"userIds\":[1,999]}").post("/chats").then().statusCode(404);
+    }
+
+    @Test
+    void errorsHaveOneJsonShape() {
+        asJson(janek(), "{\"userIds\":[1,999]}").post("/chats")
+                .then().statusCode(404)
+                .body("status", equalTo(404))
+                .body("error", equalTo("Not Found"))
+                .body("message", equalTo("User not found: 999"));
+    }
+
+    @Test
+    void unexpectedFailuresAreReportedGenericallyWithoutLeakingInternals() {
+        when(userRepo.findById(3L)).thenThrow(new IllegalStateException("db password is hunter2"));
+
+        String body = asJson(janek(), "{\"userIds\":[1,3]}").post("/chats")
+                .then().statusCode(500)
+                .body("message", equalTo("Unexpected error"))
+                .extract().asString();
+
+        assertThat(body).doesNotContain("hunter2");
     }
 }
