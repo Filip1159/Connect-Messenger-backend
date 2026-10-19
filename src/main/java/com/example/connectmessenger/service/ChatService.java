@@ -6,7 +6,9 @@ import com.example.connectmessenger.model.StatusEmbeddedId;
 import com.example.connectmessenger.model.dto.ChatDto;
 import com.example.connectmessenger.model.dto.ChatDtoMapper;
 import com.example.connectmessenger.model.dto.CreateChatRequest;
+import com.example.connectmessenger.model.dto.StatusDto;
 import com.example.connectmessenger.repo.ChatRepo;
+import com.example.connectmessenger.repo.MessageRepo;
 import com.example.connectmessenger.repo.StatusRepo;
 import com.example.connectmessenger.repo.UserRepo;
 import lombok.RequiredArgsConstructor;
@@ -24,11 +26,16 @@ public class ChatService {
     private final ChatRepo chatRepo;
     private final StatusRepo statusRepo;
     private final UserRepo userRepo;
+    private final MessageRepo messageRepo;
 
     public void assertMember(Long chatId, Long userId) {
         if (chatId == null || userId == null || !chatRepo.existsByIdAndUsers_Id(chatId, userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a member of this chat");
         }
+    }
+
+    public boolean sharesChat(Long userId, Long otherId) {
+        return userId != null && otherId != null && (userId.equals(otherId) || chatRepo.sharesChat(userId, otherId));
     }
 
     @Transactional(readOnly = true)
@@ -41,7 +48,16 @@ public class ChatService {
     @Transactional(readOnly = true)
     public List<ChatDto> getUserChats(Long userId) {
         List<Chat> chats = chatRepo.findByUsers_Id(userId);
-        return ChatDtoMapper.mapToChatDtos(chats);
+        return ChatDtoMapper.mapToChatDtos(chats).stream().map(c -> withUnreadCount(c, userId)).toList();
+    }
+
+    private ChatDto withUnreadCount(ChatDto chat, Long userId) {
+        long seen = chat.getStatus().stream()
+                .filter(s -> s.id() != null && userId.equals(s.id().userId()) && s.messageId() != null)
+                .mapToLong(StatusDto::messageId).findFirst().orElse(0L);
+        return chat.toBuilder()
+                .unreadCount(messageRepo.countByChatIdAndIdGreaterThanAndUserIdNot(chat.getId(), seen, userId))
+                .build();
     }
 
     @Transactional

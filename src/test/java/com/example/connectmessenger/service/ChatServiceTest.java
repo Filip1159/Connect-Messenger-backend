@@ -36,6 +36,8 @@ class ChatServiceTest {
     StatusRepo statusRepo;
     @Mock
     UserRepo userRepo;
+    @Mock
+    com.example.connectmessenger.repo.MessageRepo messageRepo;
     @InjectMocks
     ChatService chatService;
 

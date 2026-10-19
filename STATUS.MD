@@ -1,81 +1,123 @@
-# STATUS – known bugs and bad practices
+# STATUS
 
-Review of the codebase (`src/main/java`, `application.properties`, `build.gradle`, `data.sql`).
-Severity: **Critical** (security / data loss) · **High** (functional bug) · **Medium** · **Low**.
+Roadmap of features to implement next, based on a review of the React frontend
+(`connect-messenger-react`: Vite, Redux Toolkit, TypeScript, STOMP/SockJS, axios) and the current backend.
 
-## 1. Security
+Legend: **FE** = frontend work, **BE** = backend work. Size: S (hours), M (a day or two), L (several days).
 
-✅ = fixed. S1–S3 fixed; the app now needs `JWT_SECRET`, `DB_USERNAME`, `DB_PASSWORD` (optional `DB_URL`) env vars. **The old secret `vegetables` and the `root/root` DB password are still in git history – treat them as compromised and rotate.** S4 done: STOMP `SUBSCRIBE` is authorised per chat/user and client `SEND` is rejected.
+## What exists today
 
-High items fixed too (S4–S8, B1–B6, C1, C2). Notes: the app must now be started with `SPRING_PROFILES_ACTIVE=dev` to get the old behaviour (schema recreate + `data.sql` seed); the default profile uses `ddl-auto=update` and no seeding. CORS/WebSocket origins come from `custom.allowed-origins` (`ALLOWED_ORIGINS` env). `.gradle/` was untracked from git (staged, not committed). Low items fixed (S12, B13, B14, C7; C6 partly): settings are one validated `CustomProperties` record (JWT secret must be ≥32 chars, `spring-boot-starter-validation` added), the no-op `LoginController` is removed (`/login` is handled by the filter), and the README documents setup. Medium items fixed except the parts noted in the table (S11, B8, B10). Build now uses a Java 25 toolchain and AWS SDK v2 (`S3_BUCKET`, `AWS_REGION` env/properties); `SecurityConfig2` was merged into `SecurityConfig`; message time is set by the server; user search needs ≥2 chars, is case-insensitive, capped at 20 and excludes the caller. Not run against MySQL/S3 – only compiled.
+Login (JWT in `localStorage`, auto sign-out on expiry), list of 1:1 chats sorted by last message, user search
+by query, creating a chat, text and image messages, real-time delivery over STOMP, "seen" avatars driven by
+per-user status, sign-out. Chats are always created with exactly two users.
 
-| # | Sev | Where | Problem | Suggested fix |
-|---|-----|-------|---------|---------------|
-| S1 ✅ | Critical | `application.properties:23` | JWT secret is `vegetables` and committed to git. Also DB `root/root` credentials committed. | Load from env vars / secret manager; generate a long random secret (≥256 bit); rotate the committed one. |
-| S2 ✅ | Critical | All controllers | **No authorization (IDOR).** Any logged-in user can read `/chats/{userId}` for any user, `/chats/chat/{id}`, `/message/{id}`, `/message/file/{fileName}`, post messages as any `userId`, update any user's `Status`, create chats for arbitrary users. `userId` is taken from the client instead of the authenticated principal. | Derive the user from `SecurityContext`; check chat membership before every read/write. |
-| S3 ✅ | Critical | `SecurityConfig2:32-34` | `/test-s3` (no such endpoint), `/images/**`, swagger paths are `permitAll`; `/websocket/**` fully open. Dead/legacy matchers widen the attack surface. | Remove unused matchers; secure only the WS handshake via the STOMP interceptor. |
-| S4 ✅ | High | `WebsocketAuthChannelInterceptor` | Only `CONNECT` is authenticated; there is no check on `SUBSCRIBE`/`SEND`, so any authenticated client can subscribe to `/topic/messages/{anyChatId}` and `/topic/new-chats/{anyUserId}` and read other users' traffic. Also sets `SecurityContextHolder` on a shared thread (leaks across messages) and `eraseCredentials()` on an already-null credential is pointless. | Authorize SUBSCRIBE destinations by chat membership; use per-user destinations (`/user/queue/...`); don't touch `SecurityContextHolder` in the interceptor. |
-| S5 ✅ | High | `JwtAuthorizationFilter:42-45`, interceptor | `JWT.verify` throws `JWTVerificationException` for bad/expired tokens → unhandled 500 instead of 401. `loadUserByUsername` throws `NoSuchElementException` for a deleted user → 500. Filter is added *after* the login filter, so it does not run in the normal position. | Catch `JWTVerificationException` and return 401; throw `UsernameNotFoundException`; register the filter before `UsernamePasswordAuthenticationFilter`/`AuthorizationFilter`. |
-| S6 ✅ | High | `JsonObjectAuthenticationFilter:43` | Malformed login body → `RuntimeException` → 500. A new `ObjectMapper` is created per request. Token returned in a non-standard `Authentication` response header; JWT contains PII (name, surname). Uses `Algorithm.HMAC256` rebuilt every request. | Throw `AuthenticationServiceException`; reuse a shared mapper/`Algorithm`; return token in body or `Authorization` header; keep claims minimal. |
-| S7 ✅ | High | `SecurityConfig:29`, `WebsocketConfig:20` | CORS and WebSocket allowed origins are `*` **with `allowCredentials(true)`**. | Whitelist the real frontend origin(s) via config. |
-| S8 ✅ | High | `MessageController:38-41`, `AwsS3Client:23` | File download takes an arbitrary `fileName` (any S3 key in the bucket) and returns it Base64-encoded in a `String`. File type check trusts the client-supplied `Content-Type`; extension is also client-controlled (see B4). No upload size limit configured. | Authorize by chat membership; stream the object with proper `Content-Type`; validate magic bytes; set `spring.servlet.multipart.max-file-size`; use generated names. |
-| S9 ✅ | Medium | `SecurityConfig2:30,41` | CSRF disabled and `frameOptions` disabled globally (H2-console leftover). | Keep CSRF off only for the stateless API if intended; remove `frameOptions.disable()`. |
-| S10 ✅ | Medium | `application.properties:19` | `server.error.include-message=always` leaks internal exception messages. `spring.jpa.show-sql=true` in all environments. | Use profiles; disable in prod. |
-| S11 ✅ (toString/equals exclude password/relations; API returns `MessageDto`/`StatusDto`/`ChatDto`/`UserDto`, JSON shape unchanged; `User` is still the principal) | Medium | `User` entity | The JPA entity (with password hash) is used as the security principal and `@ToString`/`@EqualsAndHashCode` cover `password` and `chats`. Exposing `Message` / `Status` entities directly in the API too. | Separate principal from entity; exclude `password` from `toString`; return DTOs only. |
-| S12 ✅ | Low | `StatusController:21` | `System.out.println` of request data. | Use a logger (or remove). |
+## 0. Prerequisite: migrate the frontend to the new backend API (FE, S–M) — DONE
 
-## 2. Functional bugs
+The frontend now uses the new endpoints. Backend additions made for it: `userId`/`time` optional in `POST /message`
+and `PUT /status` (taken from the session and the server clock), `GET /chats/{userId}?includeMessages=false`.
+**Remaining backend cleanup** (safe once the frontend is deployed): set `custom.legacy-status-broadcast=false`,
+remove the Base64 endpoint, make `includeMessages=false` the default / drop `Chat.messages` eager loading, and stop
+accepting client-supplied `userId`/`time`.
 
-| # | Sev | Where | Problem | Suggested fix |
-|---|-----|-------|---------|---------------|
-| B1 ✅ | High | `ChatController:35-36` | `request.userIds().get(0)/get(1)` – crashes with 500 if list has <2 elements, and silently ignores the rest for group chats. Duplicate IDs / chat with self not validated. A chat between the same two users can be created repeatedly. | Validate request (`@Valid`, `@Size`); loop over all ids; reject duplicates / existing 1:1 chat. |
-| B2 ✅ | High | `ChatService:38` | `orElseThrow()` with no message → `NoSuchElementException` → 500 for unknown user id. `getChatById` returns `null` (200 with empty body) for unknown chat. | Throw a domain exception mapped to 404 via `@ControllerAdvice`. |
-| B3 ✅ | High | `User.chats` / `Chat.status` / `Status` | The `users.chats` many-to-many is mapped onto the **`status` table** (`@JoinTable(name="status")`) while `Status` is also an entity on that table with extra columns (`message_id`, `time`) and `Chat.status` is a second mapping through `@JoinColumn(name="chatId")`. Three mappings of one table – Hibernate can write conflicting rows; `ChatService.createChat` saves chat → `status` rows manually because of this. | Model membership once (e.g. `Status`/`ChatMember` entity with `@ManyToOne` user & chat), drop the join-table trick. |
-| B4 ✅ | High | `MessageService:39` | `getOriginalFilename().split("[.]")[1]` – `ArrayIndexOutOfBounds` for names without a dot, takes the wrong part for `a.tar.gz`, NPE if filename is null. `fileContent()` null for `type=FILE` → NPE; `type` null → NPE on `message.type().equals`. | Validate input; use `StringUtils.getFilenameExtension`; or derive extension from the validated content type. |
-| B5 ✅ | High | `AwsS3Client:33` | `catch (IOException ignored)` – upload failure is swallowed, message is saved with a filename pointing to a non-existent object. Validation throws `IllegalStateException` → 500 instead of 400. | Propagate exception (transaction rolls back); map to 400/502. |
-| B6 ✅ | High | `MessageService.addMessage` | S3 upload happens inside the DB transaction; if the second `save` fails the S3 object is orphaned, and vice-versa. Message is persisted twice (insert then update) just to obtain the id for the filename. | Use a UUID file name, upload first (or after commit), single save. |
-| B7 ✅ | Medium | `MessageService:26`, `CreateMessageRequest.time` | Message timestamp comes from the client – can be forged / wrong time zone; ordering by client clock. `Message.time` has a Spring `@DateTimeFormat` on a JPA entity (web annotation in the model). | Set `LocalDateTime.now()`/`Instant` on the server. |
-| B8 (partly ✅: caller/membership checks added; own topic + DTO still open) | Medium | `StatusController` | Notes "problems with updating status" (see commit `e7682ce`). `Status` is bound directly from the body (can set any user/chat), the status update is broadcast on **`/topic/messages/{chatId}`** – the same topic as messages, so clients must distinguish payload types. No `@Transactional`, no existence check. | Own topic (`/topic/status/{chatId}`), DTO, validate that the user belongs to the chat. |
-| B9 ✅ | Medium | `MessageRepo.getMessageById` / `MessageService.getMessageById` | Returns `null` for unknown id → 200 with empty body. `getXxx` is also redundant with `findById`. | Return `Optional` / 404. |
-| B10 (partly ✅: open-in-view off, reads transactional; messages still eager and unpaginated) | Medium | `Chat.messages` | `FetchType.EAGER` collection loaded for every chat, unbounded and unpaginated – `GET /chats/{userId}` returns every message of every chat. `users` / `status` are lazy but accessed in the mapper outside any transaction (works only because of Open-Session-In-View). | Paginate messages (separate endpoint), fetch with `@EntityGraph`/DTO projections, disable OSIV (`spring.jpa.open-in-view=false`). |
-| B11 ✅ | Medium | `ChatController:20-25` | Builds a throw-away `User` just to query by id; `findChatsByUsersContaining(User)` relies on that. | Query by user id (`findByUsers_Id`). |
-| B12 ✅ | Medium | `UserController` | Search returns every user for an empty/short string, is case-sensitive, has no limit/pagination, includes the caller. | Use `IgnoreCase`, min length, pageable. |
-| B13 ✅ | Low | `CustomProperties` | Field `JwtExpirationTime` is capitalised → Lombok generates `getJwtExpirationTime`, binding of `custom.jwt-expiration-time` is fragile; annotated `@Configuration` (should be `@Component`/`@EnableConfigurationProperties`) and not even used (`@Value` is used instead, with the secret duplicated in 3 places). | Use one properties class, injected everywhere; add `@NotBlank` validation. |
-| B14 ✅ | Low | `LoginController` | Empty no-op endpoint that exists only so `/login` is mapped. | Document, or remove and rely on filter. |
+| # | Task | Frontend place | Unblocks on the backend |
+|---|------|----------------|--------------------------|
+| 0.1 ✅ | Subscribe to `/topic/status/{chatId}` in addition to `/topic/messages/{chatId}`; stop discriminating message vs. status with `"content" in parsed` | `ChatAPI.subscribe`, `useChatSync.onMessage` | drop `custom.legacy-status-broadcast` |
+| 0.2 ✅ | Load images with `GET /message/file/{name}/raw` (as a `blob` + `URL.createObjectURL`, revoke on unmount) instead of Base64 + magic-byte sniffing | `ChatAPI.loadFile`, `Message.tsx` | remove the Base64 endpoint |
+| 0.3 ✅ | Load history from `GET /chats/chat/{chatId}/messages?before=&size=` (infinite scroll upwards, keep scroll position) | `chatsSlice`, `MessagesSection` | return chats without messages from `GET /chats/{userId}` (fixes B10 fully, drops the eager `Chat.messages`) |
+| 0.4 ✅ | Stop sending `userId` in `POST /message` and `PUT /status` (the server knows the principal) | `ChatAPI.postMessage`, `updateStatus` | remove client-supplied identity fields (spoofing surface) |
+| 0.5 ✅ | Use the server time instead of `DateFormatter.nowToSql()` (client clocks and time zones differ) | `ChatAPI.postMessage`, `updateStatus` | server-assigned timestamps |
 
-## 3. Configuration / build / repo hygiene
+## 1. Core messaging gaps (high value) — DONE
 
-| # | Sev | Where | Problem | Suggested fix |
-|---|-----|-------|---------|---------------|
-| C1 ✅ | High | `application.properties:8` + `data.sql` | `ddl-auto=create` **drops and recreates the schema on every start** – all data is lost; seed data (with known passwords listed in comments) is loaded in every environment. | Use Flyway/Liquibase + `validate`; seed only in a `dev` profile. |
-| C2 ✅ | High | `.gitignore` vs repo | `/.gradle/` is ignored but `.gradle/**` binary files are tracked (they show as modified/deleted in `git status`). Old `.gradle/7.6.1` cache in a project now using a different wrapper. | `git rm -r --cached .gradle`. |
-| C3 ✅ | Medium | `build.gradle` | `sourceCompatibility = VERSION_25` / Boot `4.1.1` – verify these are intentional (uncommitted changes in working tree: `build.gradle`, wrapper, `SecurityConfig*`). Use a `toolchain` block instead of `sourceCompatibility`. Uses **AWS SDK v1** (`aws-java-sdk-s3`, end-of-support). `SecurityConfig`/`SecurityConfig2` rely on Spring Security APIs that changed in 7 – confirm it builds & runs. | Migrate to AWS SDK v2; use `java { toolchain { languageVersion = ... } }`. |
-| C4 ✅ | Medium | `SecurityConfig` + `SecurityConfig2` | Security configuration split across two classes with non-descriptive name `SecurityConfig2`; beans like `DaoAuthenticationProvider` and `UserDetailsService` are defined manually next to a `@Service UserService` that is itself a `UserDetailsService` (two beans of the same type; `new UserService(userRepo)` creates a duplicate). `AuthenticationManager` from `AuthenticationConfiguration` may not use the custom `authenticationProvider` bean. | Merge into one `SecurityConfig`, single `UserDetailsService` bean, build `AuthenticationManager` explicitly with the provider. |
-| C5 ✅ | Medium | `AwsS3Client`, `AwsConfig` | Bucket name `connect-messenger` and region `EU_CENTRAL_1` hardcoded; env-var-only credentials provider. | Externalise to properties; use `DefaultCredentialsProvider`. |
-| C6 ✅ (explicit user ids, password comments gone) | Low | `data.sql` | Hard-coded ids (`insert into chats (id)`, `message_id`) alongside `IDENTITY` generation; plaintext passwords in comments. | Seed via profile-specific script, drop password comments. |
-| C7 ✅ | Low | `README.md` | Tiny; no setup instructions (MySQL, AWS env vars, required properties). | Document how to run. |
+| # | Feature | Details | Size |
+|---|---------|---------|------|
+| 1.1 ✅ | **Unread counters and badges** | Chat list shows no unread state. Count messages with `id > myStatus.messageId`; bold preview and badge in `ChatItem`; unread count in the tab title. BE: return `unreadCount` with the chat list so it works once messages are paged. | M (FE+BE) |
+| 1.2 ✅ | **Online presence and "last seen"** | BE: track STOMP connect/disconnect events, publish to `/topic/presence/{userId}`, expose `lastSeen` on `User`. FE: green dot on `Avatar`, "active x min ago" in the chat header. | M (FE+BE) |
+| 1.3 ✅ | **Typing indicator** | Ephemeral STOMP message `/app/chats/{chatId}/typing`, relayed to `/topic/typing/{chatId}`; FE shows "... is typing" under the messages, throttled to one event per 2-3 s. No persistence. | S–M |
+| 1.4 ✅ | **Message delivery state and send errors** | `NewMessageInput` only logs failures to the console. Optimistic message with sending / sent / failed state and a retry button; disable the send button while a request is in flight. | S |
+| 1.5 ✅ | **Reconnect catch-up** | After a websocket reconnect, messages sent while offline are lost until a reload. On `onConnect` fetch messages newer than the last known id (`GET .../messages?after=`) and merge. BE: add the `after` parameter. | M (FE+BE) |
+| 1.6 ✅ | **Auto-scroll that respects the reader** | `MessagesSection` scrolls to the bottom on every new message, even when the user is reading old ones. Scroll only when already at the bottom; otherwise show a "new messages" button. | S |
 
-## 4. Code quality / bad practices
+Notes on what was built:
 
-- ✅ **Tests added** (`./gradlew test`, no database or S3 needed; controller tests are RestAssured component tests with mocked repositories): formerly `ApiAuthorizationTest` (login, 401s, 403s, uploads, downloads, status, search against the real security chain + `data.sql` seed), `WebsocketAuthChannelInterceptorTest`, `ChatServiceTest`, `MessageServiceTest`, `UserServiceTest`, `AwsS3ClientTest`. `RealServerTest` runs on a real embedded server without a transaction. First run against real MySQL (dev profile) found and fixed 3 bugs the MockMvc tests could not see: lazy `status`/`messages` collections serialized after the transaction closed (500), error dispatches blocked by security (every 403/404 came back as 401; `/error` dispatch now permitted), and `createChat` attaching transient `Status` objects (500 at flush). Still untested: real S3 and the live STOMP handshake.
-- ✅ Done in the follow-up pass: global `ApiExceptionHandler` (one JSON error shape, generic 500), `MessageDto`/`StatusDto` instead of entities, explicit imports, public handler methods, mutable lists for new chats, dead field removed in the login filter, Spotless added (`./gradlew spotlessCheck`). **Still open and needing a frontend change:** B8 (status updates still go to `/topic/messages/{chatId}`) and B10 (`GET /chats/{userId}` still returns every message; needs a paginated messages endpoint). Base64 file responses and REST path naming are also left as-is for the same reason.
-- (historic) **No input validation** anywhere (`@Valid`, `jakarta.validation` is not even a dependency: `spring-boot-starter-validation` missing, so `@Validated` on `CustomProperties` does nothing).
-- **No global exception handling** (`@ControllerAdvice`); `RuntimeException`, `IllegalStateException`, `NoSuchElementException` are used for domain errors → 500s.
-- **Entities leak into the API**: `Message` and `Status` are returned/accepted directly (`MessageController`, `StatusController`, `ChatDto.messages/status`). Only chats and users have DTOs.
-- **Lombok on entities**: `@EqualsAndHashCode`/`@ToString` on JPA entities with relations (`Chat`↔`User` cycle → `StackOverflowError` if `toString`/`hashCode` is ever called; lazy-loading side effects). `@Data` on `StatusEmbeddedId` is fine, but entities should use id-based equality.
-- **Package-private controller methods** (`ChatController.create`, `MessageController.getMessageImage`) – inconsistent with the other `public` handlers.
-- **Inconsistent REST design**: `/chats/{userId}` vs `/chats/chat/{id}`, `/message` (singular, no common prefix) vs `/chats`, `/user/{text}` used for search, `PUT /status`; CORS allows only `GET, POST, PUT` (no `DELETE`/`OPTIONS` listed explicitly).
-- **Base64 file responses as `String`** instead of `byte[]`/`Resource` with a media type; whole file buffered in memory (`IOUtils.toByteArray`).
-- **Wildcard imports** (`org.springframework.web.bind.annotation.*`, `jakarta.persistence.*`, `lombok.*`) used inconsistently.
-- **`ChatDto` comment `// statuses ???`** – unresolved design question; `ChatService.getChatById` manual `orElse(null)` pattern.
-- **Mutable `List.of()` assigned to entities** (`ChatService:43-44`) – immutable lists on managed entities break Hibernate collection handling if modified later.
-- **Missing `@Transactional(readOnly = true)`** on read services; `ChatService.createChat` performs several writes without a transaction (chat saved, then statuses — partial failure leaves a chat with no members).
-- **Unused imports / dead code**: `Base64`/`MULTIPART` only in one controller; `SecurityConfig.authenticationProvider` bean; `JsonObjectAuthenticationFilter.authenticationManager` duplicates the parent field.
+- **Unread (1.1):** `ChatDto.unreadCount` from the server (messages of others after my last seen one); live increments on the
+  client, reset when my read status is accepted; badge in the chat list, `(n) CONNECT` tab title.
+- **Presence (1.2):** `PresenceService` counts websocket sessions per user, stores `User.lastSeen` on the last disconnect,
+  `GET /presence` (contacts only) and `/topic/presence/{userId}` (allowed only for people you share a chat with).
+  `User.lastSeen` is a new column, so production needs the schema change (ddl-auto=update does it; see 5.7).
+- **Typing (1.3):** `SEND /app/chats/{id}/typing` (members only; every other client SEND is still refused) relayed to
+  `/topic/typing/{id}`; the client throttles to one event per 2.5 s and hides it after 4 s or when the message arrives.
+- **Sending (1.4):** optimistic outbox with sending / failed + retry / discard.
+- **Catch-up (1.5):** `GET /chats/chat/{id}/messages?after=` plus a refresh of statuses, unread counts, new chats and
+  presence after every reconnect.
+- **Scrolling (1.6):** follows new messages only at the bottom or for my own; otherwise a "New messages" button.
+- Verified against a real backend (dev profile) with a STOMP client: presence online/offline events, typing relay, and that
+  foreign presence/typing subscriptions are refused. Not covered by automated tests: the browser's real websocket.
 
-## 5. Suggested order of work
+## 2. Message features
 
-1. S1, S2, S4, S8 – secrets & authorization (anyone logged in can currently read everything).
-2. C1 – stop `ddl-auto=create` before any real data exists.
-3. B3, B1, B2, B4–B6 – data model and error handling of the core flows.
-4. Add global exception handler + validation + tests for the above.
-5. Clean up config (C2–C5), DTO boundaries, pagination (B10).
+| # | Feature | Details | Size |
+|---|---------|---------|------|
+| 2.1 | **Image preview and lightbox** | Click an image to open it full size; show a loading placeholder and an error state instead of an empty `<img>`. Needs 0.2 (blob URLs), BE can add thumbnails. | S–M |
+| 2.2 | **Emoji picker, multi-line input, Enter/Shift+Enter** | The input is a single-line `<input type="text">`; switch to an auto-growing textarea. | S |
+| 2.3 | **Drag and drop / paste images, attachment preview with remove** | Today a chosen file replaces the icon, and cannot be cancelled except by typing. Validate type/size (`MaxUploadSizeExceeded` returns 413) before upload and show the message. | S–M |
+| 2.4 | **Delete and edit own messages** | BE: `DELETE /message/{id}`, `PATCH /message/{id}`, soft delete, broadcast an event to `/topic/messages/{chatId}` (needs an event type field, see 5.2). FE: context menu, "edited" label. | M (FE+BE) |
+| 2.5 | **Message search within a chat** | BE: `GET /chats/chat/{id}/messages?query=` (LIKE, later full text). FE: search box in the conversation header. | M (FE+BE) |
+| 2.6 | **Links and formatting** | Linkify URLs (safely, `rel="noopener noreferrer"`), preserve newlines. Never render message content as HTML. | S |
+| 2.7 | **Reactions and replies** | Emoji reactions; reply-to quoting. Needs schema additions (`message_reaction`, `reply_to_id`). | L |
+
+## 3. Chats and users
+
+| # | Feature | Details | Size |
+|---|---------|---------|------|
+| 3.1 | **Account registration** | There is no sign-up; users only come from `data.sql`. BE: `POST /users` (validation, password policy, unique username, BCrypt). FE: registration page and link from the login page. | M (FE+BE) |
+| 3.2 | **Profile editing** | Change name, surname, password; real avatar upload (S3) instead of the generated `Avatar` from the username. `UserDetailsSection` is read-only today. | M (FE+BE) |
+| 3.3 | **Group chats** | Backend model already supports `Chat.users` with N users, but `createChat` always sends two ids and `getRecipient` assumes one other participant. FE: multi-select in search, group name, avatars stack; BE: chat title, add/remove member, admin role, authorisation on those. | L |
+| 3.4 | **Prevent duplicate 1:1 chats** | Creating a chat with the same person twice makes a second chat. BE: return the existing one (idempotent create); FE: just activate it. | S |
+| 3.5 | **Leave / archive / mute chat** | Per-user chat flags; hide archived chats from the list. | M (FE+BE) |
+| 3.6 | **Block user** | Prevents new chats and messages from a blocked user. | M (FE+BE) |
+
+## 4. UX, accessibility, mobile
+
+| # | Feature | Details | Size |
+|---|---------|---------|------|
+| 4.1 | **Responsive layout** | Three fixed sections; on narrow screens show the chat list, then the conversation with a back button. | M |
+| 4.2 | **Connection status banner** | Show "reconnecting..." when the websocket drops; the STOMP errors currently only go to `console.error`. | S |
+| 4.3 | **Desktop and tab notifications** | `Notification` API and sound for messages in non-active chats or a hidden tab (uses `usePageVisible`); per-chat mute (3.5). | S–M |
+| 4.4 | **Dark theme and user settings** | SCSS variables already exist in `_variables.scss`; add a theme toggle persisted in `localStorage`. | S |
+| 4.5 | **i18n** | `strings.ts` mixes Polish ("Szukaj:", "Brak wiadomości") and English. Pick one language per locale and add a locale switch (e.g. `Intl`-based date formatting in `DateFormatter`). | S–M |
+| 4.6 | **Accessibility pass** | Live region for incoming messages, focus management when switching chats, keyboard navigation of the chat list, check colour contrast. Buttons already have roles and labels. | S–M |
+| 4.7 | **Empty and error states** | Search with no results, chat list load failure (currently `console.error` and an empty list), loading skeletons. | S |
+
+## 5. Security and platform (backend-heavy)
+
+| # | Item | Details | Size |
+|---|------|---------|------|
+| 5.1 | **Rotate secrets** | The old JWT secret (`vegetables`) and root/root DB credentials are still in git history. Rotate in every real environment; consider history scrubbing. | S |
+| 5.2 | **Typed websocket events** | Message, status, chat, deletion and presence currently differ only by field presence. Introduce `{type, payload}` envelopes (a topic per concern is already used for status). Do it together with 2.4. | M (FE+BE) |
+| 5.3 | **Token strategy** | The token lives in `localStorage` and is sent without a `Bearer` scheme. Add refresh tokens or sliding expiry plus `Authorization: Bearer`; evaluate an httpOnly cookie. Keep the legacy header accepted until the frontend migrates. | M (FE+BE) |
+| 5.4 | **Login rate limiting / lockout** | Throttle `/login` by IP and username to slow brute force. | S |
+| 5.5 | **Persistence tests** | Repositories are mocked in all tests, so JPA mappings and the paging query are untested. Add Testcontainers MySQL tests (CI already has Docker). | M |
+| 5.6 | **Real S3 and STOMP integration tests** | The in-memory S3 and the websocket handshake are only unit-tested. Add an end-to-end websocket test (real STOMP client against `RANDOM_PORT`) and a LocalStack-backed S3 test. | M |
+| 5.7 | **Database migrations** | `ddl-auto=update` on the default profile; adopt Flyway/Liquibase before adding new columns (needed by 2.4, 3.3, 3.5). | M |
+| 5.8 | **Observability** | Actuator health and metrics, structured logs, request correlation id; health check used by deployment. | S |
+| 5.9 | **Containerisation and deployment** | Dockerfile and docker-compose (backend + MySQL + frontend); CD workflow after CI. | M |
+| 5.10 | **REST path cleanup** | `/chats/{userId}`, `/chats/chat/{id}/messages`, `/message`, `/user/{query}` are inconsistent (singular/plural, a query in the path). Introduce `/api/v1/...` and a deprecation window after the frontend migrates. | M (FE+BE) |
+
+## 6. Frontend quality (FE)
+
+| # | Item | Details | Size |
+|---|------|---------|------|
+| 6.1 | **Typed API layer** | `ChatAPI` is a class with static state. Move to RTK Query (already installed with Redux Toolkit) or a small hooks layer: caching, error and loading state, abort handling. | M |
+| 6.2 | **Contract tests** | Share an OpenAPI spec (springdoc on the backend) and generate TS types so `types.ts` cannot drift from the DTOs. | M (FE+BE) |
+| 6.3 | **More e2e coverage** | Playwright covers login and basic chat with a mocked backend; add scenarios for image sending, creating a chat, reconnect, expired token. Optionally run e2e against the `dev` profile (H2 + in-memory S3) in CI. | M |
+| 6.4 | **Performance of long conversations** | List virtualization once paging (0.3) is in; memoize `Message`, avoid recomputing `DateFormatter` for every row on each render. | S–M |
+
+## Suggested order
+
+1. **0.1–0.5** migrate the frontend to the new API, then delete the legacy broadcast, the Base64 endpoint and the eager messages on the backend.
+2. **1.4, 1.6, 3.4, 4.2, 4.7**: cheap fixes to everyday rough edges.
+3. **1.1, 1.5, 1.3, 1.2**: unread counters, catch-up, typing, presence.
+4. **3.1, 3.2**: registration and profile, so the app is usable beyond seeded data (with 5.7 migrations first).
+5. **2.x** message features and **3.3** group chats (needs 5.2 typed events and 5.7 migrations).
+6. Platform items (5.1, 5.4, 5.5, 5.6, 5.8, 5.9) in parallel, 5.1 first.

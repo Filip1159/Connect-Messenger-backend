@@ -11,6 +11,7 @@ import java.util.Base64;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.startsWith;
@@ -45,6 +46,14 @@ class MessageControllerTest extends ControllerComponentTest {
     }
 
     @Test
+    void messagesNewerThanAGivenOneCanBeLoadedOldestFirst() {
+        as(janek()).get("/chats/chat/1/messages?after=117&size=10")
+                .then().statusCode(200)
+                .body("id", org.hamcrest.Matchers.contains(118, 119, 120));
+        as(grace()).get("/chats/chat/1/messages?after=117").then().statusCode(403);
+    }
+
+    @Test
     void textMessageCanBePostedAsYourselfIntoYourChat() {
         textMessage(janek(), 1, 1, "hello").post("/message")
                 .then().statusCode(200)
@@ -53,6 +62,12 @@ class MessageControllerTest extends ControllerComponentTest {
                 .body("chatId", equalTo(1));
 
         verify(messageRepo).save(any(Message.class));
+    }
+
+    @Test
+    void senderIsTheAuthenticatedUserEvenWithoutUserId() {
+        as(janek()).multiPart("chatId", 1).multiPart("type", "TEXT").multiPart("textContent", "hi")
+                .post("/message").then().statusCode(200).body("userId", equalTo(1));
     }
 
     @Test
@@ -109,5 +124,38 @@ class MessageControllerTest extends ControllerComponentTest {
         as(janek()).get("/message/file/1").then().statusCode(404);
 
         verify(s3Client, never()).getObjectAsBytes(any(GetObjectRequest.class));
+    }
+
+    @Test
+    void historyIsPagedNewestPageFirstAndOldestFirstWithinAPage() {
+        as(janek()).get("/chats/chat/1/messages?size=3")
+                .then().statusCode(200)
+                .body("id", contains(118, 119, 120));
+        as(janek()).get("/chats/chat/1/messages?size=3&before=118")
+                .then().statusCode(200)
+                .body("id", contains(115, 116, 117));
+    }
+
+    @Test
+    void historyPageSizeIsCappedAndMembershipIsRequired() {
+        as(janek()).get("/chats/chat/1/messages?size=100000").then().statusCode(200).body("size()", equalTo(100));
+        as(janek()).get("/chats/chat/1/messages").then().statusCode(200).body("size()", equalTo(50));
+        as(janek()).get("/chats/chat/3/messages").then().statusCode(403);
+        anonymous().get("/chats/chat/1/messages").then().statusCode(401);
+    }
+
+    @Test
+    void rawFileIsServedWithItsContentTypeToMembersOnly() {
+        String name = fileMessage(janek(), PNG).post("/message").then().statusCode(200).extract().path("content");
+        when(messageRepo.findByTypeAndContent(MessageType.FILE, name))
+                .thenReturn(Optional.of(new Message(100L, 1L, 1L, LocalDateTime.now(), MessageType.FILE, name)));
+        when(s3Client.getObjectAsBytes(any(GetObjectRequest.class)))
+                .thenReturn(ResponseBytes.fromByteArray(GetObjectResponse.builder().build(), PNG));
+
+        byte[] bytes = as(janek()).get("/message/file/" + name + "/raw")
+                .then().statusCode(200).contentType("image/png").extract().asByteArray();
+
+        assertThat(bytes).isEqualTo(PNG);
+        as(grace()).get("/message/file/" + name + "/raw").then().statusCode(403);
     }
 }

@@ -19,6 +19,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.Limit;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -26,11 +27,13 @@ import org.springframework.transaction.PlatformTransactionManager;
 import software.amazon.awssdk.services.s3.S3Client;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.IntStream;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -125,6 +128,29 @@ abstract class ControllerComponentTest {
             return message;
         });
         when(messageRepo.findByTypeAndContent(any(), anyString())).thenReturn(Optional.empty());
+        when(messageRepo.findByChatIdAndIdLessThanOrderByIdDesc(anyLong(), anyLong(), any())).thenAnswer(inv -> {
+            long chatId = inv.getArgument(0);
+            long before = inv.getArgument(1);
+            return IntStream.rangeClosed(1, 120).boxed().sorted(Comparator.reverseOrder())
+                    .filter(i -> i < before)
+                    .map(i -> new Message((long) i, chatId, 1L, LocalDateTime.parse("2021-07-07T22:00:00"), MessageType.TEXT, "m" + i))
+                    .limit(inv.<Limit>getArgument(2).max())
+                    .toList();
+        });
+
+        when(messageRepo.findByChatIdAndIdGreaterThanOrderByIdAsc(anyLong(), anyLong(), any())).thenAnswer(inv -> {
+            long chatId = inv.getArgument(0);
+            long after = inv.getArgument(1);
+            return IntStream.rangeClosed(1, 120).boxed()
+                    .filter(i -> i > after)
+                    .map(i -> new Message((long) i, chatId, 1L, LocalDateTime.parse("2021-07-07T22:00:00"), MessageType.TEXT, "m" + i))
+                    .limit(inv.<Limit>getArgument(2).max())
+                    .toList();
+        });
+        // unread = 120 messages minus the last seen one (statuses carry no message id here, so everything is unread)
+        when(messageRepo.countByChatIdAndIdGreaterThanAndUserIdNot(anyLong(), anyLong(), anyLong())).thenReturn(3L);
+        when(chatRepo.sharesChat(anyLong(), anyLong())).thenAnswer(inv -> MEMBERS.values().stream()
+                .anyMatch(m -> m.contains(inv.<Long>getArgument(0)) && m.contains(inv.<Long>getArgument(1))));
 
         when(statusRepo.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
         when(statusRepo.save(any(Status.class))).thenAnswer(inv -> inv.getArgument(0));

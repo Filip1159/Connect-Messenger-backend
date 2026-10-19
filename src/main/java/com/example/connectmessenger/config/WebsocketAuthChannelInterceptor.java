@@ -19,12 +19,18 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
+import java.util.regex.Pattern;
+
 @Service
 @RequiredArgsConstructor
 public class WebsocketAuthChannelInterceptor implements ChannelInterceptor {
 
     private static final String MESSAGES_TOPIC = "/topic/messages/";
+    private static final String STATUS_TOPIC = "/topic/status/";
     private static final String NEW_CHATS_TOPIC = "/topic/new-chats/";
+    private static final String TYPING_TOPIC = "/topic/typing/";
+    private static final String PRESENCE_TOPIC = "/topic/presence/";
+    private static final Pattern TYPING_DESTINATION = Pattern.compile("^/app/chats/(\\d+)/typing$");
 
     private final CustomProperties properties;
     private final UserService userService;
@@ -43,9 +49,7 @@ public class WebsocketAuthChannelInterceptor implements ChannelInterceptor {
         } else if (command == StompCommand.SUBSCRIBE) {
             authorizeSubscription(headerAccessor);
         } else if (command == StompCommand.SEND) {
-            // clients only talk to the server over REST; a client SEND to /topic/** would be
-            // re-broadcast by the simple broker to every subscriber
-            throw new MessagingException("Sending frames is not allowed");
+            authorizeSend(headerAccessor);
         }
         return message;
     }
@@ -68,10 +72,33 @@ public class WebsocketAuthChannelInterceptor implements ChannelInterceptor {
         }
     }
 
-    private void authorizeSubscription(StompHeaderAccessor headerAccessor) {
+    /**
+     * Clients talk to the server over REST; the only frame they may send is the typing notification of a chat they
+     * belong to. A client SEND to /topic/** would be re-broadcast by the simple broker to every subscriber.
+     */
+    private void authorizeSend(StompHeaderAccessor headerAccessor) {
+        User user = authenticatedUser(headerAccessor);
+        String destination = headerAccessor.getDestination();
+        var typing = destination == null ? null : TYPING_DESTINATION.matcher(destination);
+        if (typing == null || !typing.matches()) {
+            throw new MessagingException("Sending frames is not allowed");
+        }
+        try {
+            chatService.assertMember(Long.parseLong(typing.group(1)), user.getId());
+        } catch (NumberFormatException | org.springframework.web.server.ResponseStatusException e) {
+            throw new MessagingException("Not a member of this chat");
+        }
+    }
+
+    private static User authenticatedUser(StompHeaderAccessor headerAccessor) {
         if (!(headerAccessor.getUser() instanceof Authentication auth) || !(auth.getPrincipal() instanceof User user)) {
             throw new MessagingException("Not authenticated");
         }
+        return user;
+    }
+
+    private void authorizeSubscription(StompHeaderAccessor headerAccessor) {
+        User user = authenticatedUser(headerAccessor);
         String destination = headerAccessor.getDestination();
         if (destination == null) {
             throw new MessagingException("Missing destination");
@@ -80,6 +107,15 @@ public class WebsocketAuthChannelInterceptor implements ChannelInterceptor {
         try {
             if (destination.startsWith(MESSAGES_TOPIC)) {
                 chatService.assertMember(Long.parseLong(destination.substring(MESSAGES_TOPIC.length())), user.getId());
+            } else if (destination.startsWith(STATUS_TOPIC)) {
+                chatService.assertMember(Long.parseLong(destination.substring(STATUS_TOPIC.length())), user.getId());
+            } else if (destination.startsWith(TYPING_TOPIC)) {
+                chatService.assertMember(Long.parseLong(destination.substring(TYPING_TOPIC.length())), user.getId());
+            } else if (destination.startsWith(PRESENCE_TOPIC)) {
+                // presence is only visible to people you share a chat with
+                if (!chatService.sharesChat(user.getId(), Long.parseLong(destination.substring(PRESENCE_TOPIC.length())))) {
+                    throw new MessagingException("Not allowed to follow this user");
+                }
             } else if (destination.startsWith(NEW_CHATS_TOPIC)) {
                 if (Long.parseLong(destination.substring(NEW_CHATS_TOPIC.length())) != user.getId()) {
                     throw new MessagingException("Cannot subscribe to another user's topic");

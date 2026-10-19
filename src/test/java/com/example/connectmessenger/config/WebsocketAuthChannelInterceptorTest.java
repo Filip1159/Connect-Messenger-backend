@@ -44,7 +44,7 @@ class WebsocketAuthChannelInterceptorTest {
     @BeforeEach
     void setUp() {
         interceptor = new WebsocketAuthChannelInterceptor(
-                new CustomProperties(SECRET, 3600000, List.of(), "bucket", "eu-central-1"), userService, chatService);
+                new CustomProperties(SECRET, 3600000, List.of(), "bucket", "eu-central-1", true), userService, chatService);
         user = new User();
         user.setId(1L);
         user.setUsername("janek007");
@@ -115,6 +115,7 @@ class WebsocketAuthChannelInterceptorTest {
     @Test
     void membersMaySubscribeToTheirChat() {
         assertThatCode(() -> subscribe("/topic/messages/5")).doesNotThrowAnyException();
+        assertThatCode(() -> subscribe("/topic/status/5")).doesNotThrowAnyException();
     }
 
     @Test
@@ -122,6 +123,35 @@ class WebsocketAuthChannelInterceptorTest {
         doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN)).when(chatService).assertMember(7L, 1L);
 
         assertThatThrownBy(() -> subscribe("/topic/messages/7")).isInstanceOf(MessagingException.class);
+        assertThatThrownBy(() -> subscribe("/topic/status/7")).isInstanceOf(MessagingException.class);
+    }
+
+    @Test
+    void membersMaySubscribeToTypingOfTheirChatOnly() {
+        assertThatCode(() -> subscribe("/topic/typing/5")).doesNotThrowAnyException();
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN)).when(chatService).assertMember(7L, 1L);
+        assertThatThrownBy(() -> subscribe("/topic/typing/7")).isInstanceOf(MessagingException.class);
+    }
+
+    @Test
+    void presenceIsVisibleOnlyForUsersSharingAChat() {
+        when(chatService.sharesChat(1L, 2L)).thenReturn(true);
+        assertThatCode(() -> subscribe("/topic/presence/2")).doesNotThrowAnyException();
+        assertThatThrownBy(() -> subscribe("/topic/presence/3")).isInstanceOf(MessagingException.class);
+    }
+
+    @Test
+    void onlyTypingNotificationsOfOwnChatsMayBeSent() {
+        assertThatCode(() -> interceptor.preSend(frame(StompCommand.SEND, "/app/chats/5/typing", authenticated()), null))
+                .doesNotThrowAnyException();
+
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SEND, "/topic/messages/5", authenticated()), null))
+                .isInstanceOf(MessagingException.class);
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SEND, "/app/chats/5/typing", null), null))
+                .isInstanceOf(MessagingException.class);
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN)).when(chatService).assertMember(7L, 1L);
+        assertThatThrownBy(() -> interceptor.preSend(frame(StompCommand.SEND, "/app/chats/7/typing", authenticated()), null))
+                .isInstanceOf(MessagingException.class);
     }
 
     @Test

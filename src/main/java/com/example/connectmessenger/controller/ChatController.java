@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -26,11 +27,17 @@ public class ChatController {
     private final SimpMessagingTemplate template;
 
     @GetMapping("/{userId}")
-    public List<ChatDto> getChatsByUserId(@PathVariable Long userId, @AuthenticationPrincipal User principal) {
+    public List<ChatDto> getChatsByUserId(@PathVariable Long userId,
+                                          @RequestParam(defaultValue = "true") boolean includeMessages,
+                                          @AuthenticationPrincipal User principal) {
         if (!principal.getId().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot read another user's chats");
         }
-        return chatService.getUserChats(userId);
+        var chats = chatService.getUserChats(userId);
+        if (includeMessages) return chats;
+        // history is loaded page by page from /chats/chat/{id}/messages
+        return chats.stream().map(c -> ChatDto.builder().id(c.getId()).users(c.getUsers())
+                .status(c.getStatus()).unreadCount(c.getUnreadCount()).messages(List.of()).build()).toList();
     }
 
     @GetMapping("/chat/{id}")

@@ -17,6 +17,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -34,6 +35,7 @@ public class User implements UserDetails {
     private String username;
     private String name;
     private String surname;
+    private LocalDateTime lastSeen;  // set when the last websocket session of the user closes
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     private String password;

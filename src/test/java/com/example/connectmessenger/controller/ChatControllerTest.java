@@ -32,6 +32,22 @@ class ChatControllerTest extends ControllerComponentTest {
     }
 
     @Test
+    void chatListReportsUnreadMessages() {
+        as(janek()).get("/chats/1").then().statusCode(200).body("unreadCount", org.hamcrest.Matchers.everyItem(equalTo(3)));
+        as(janek()).get("/chats/1?includeMessages=false").then().statusCode(200)
+                .body("unreadCount", org.hamcrest.Matchers.everyItem(equalTo(3)));
+    }
+
+    @Test
+    void chatListCanBeLoadedWithoutMessages() {
+        as(janek()).get("/chats/1?includeMessages=false")
+                .then().statusCode(200)
+                .body("id", hasItems(1, 2, 4))
+                .body("[0].messages", org.hamcrest.Matchers.empty())
+                .body("[0].users", notNullValue());
+    }
+
+    @Test
     void chatListOfAnotherUserIsForbidden() {
         as(janek()).get("/chats/2").then().statusCode(403);
         as(janek()).get("/chats/4").then().statusCode(403);
