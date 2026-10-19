@@ -126,17 +126,40 @@ Notes on what was built:
 - **Known gaps:** a changed name or avatar of another person shows after the next reload or reconnect (no broadcast); there are no system messages ("X added Y"); a new message does not un-archive a chat;
   messages of a blocked person in a *group* are still shown; the person who was blocked only sees a failed message (403), not why; no avatar for a group.
 
-## 4. UX, accessibility, mobile
+## 4. UX, accessibility, mobile — DONE (frontend only)
 
 | # | Feature | Details | Size |
 |---|---------|---------|------|
-| 4.1 | **Responsive layout** | Three fixed sections; on narrow screens show the chat list, then the conversation with a back button. | M |
-| 4.2 | **Connection status banner** | Show "reconnecting..." when the websocket drops; the STOMP errors currently only go to `console.error`. | S |
-| 4.3 | **Desktop and tab notifications** | `Notification` API and sound for messages in non-active chats or a hidden tab (uses `usePageVisible`); per-chat mute (3.5). | S–M |
-| 4.4 | **Dark theme and user settings** | SCSS variables already exist in `_variables.scss`; add a theme toggle persisted in `localStorage`. | S |
-| 4.5 | **i18n** | `strings.ts` mixes Polish ("Szukaj:", "Brak wiadomości") and English. Pick one language per locale and add a locale switch (e.g. `Intl`-based date formatting in `DateFormatter`). | S–M |
-| 4.6 | **Accessibility pass** | Live region for incoming messages, focus management when switching chats, keyboard navigation of the chat list, check colour contrast. Buttons already have roles and labels. | S–M |
-| 4.7 | **Empty and error states** | Search with no results, chat list load failure (currently `console.error` and an empty list), loading skeletons. | S |
+| 4.1 ✅ | **Responsive layout** | Three fixed sections; on narrow screens show the chat list, then the conversation with a back button. | M |
+| 4.2 ✅ | **Connection status banner** | Show "reconnecting..." when the websocket drops; the STOMP errors currently only go to `console.error`. | S |
+| 4.3 ✅ | **Desktop and tab notifications** | `Notification` API and sound for messages in non-active chats or a hidden tab (uses `usePageVisible`); per-chat mute (3.5). | S–M |
+| 4.4 ✅ | **Dark theme and user settings** | SCSS variables already exist in `_variables.scss`; add a theme toggle persisted in `localStorage`. | S |
+| 4.5 ✅ | **i18n** | `strings.ts` mixes Polish ("Szukaj:", "Brak wiadomości") and English. Pick one language per locale and add a locale switch (e.g. `Intl`-based date formatting in `DateFormatter`). | S–M |
+| 4.6 ✅ | **Accessibility pass** | Live region for incoming messages, focus management when switching chats, keyboard navigation of the chat list, check colour contrast. Buttons already have roles and labels. | S–M |
+| 4.7 ✅ | **Empty and error states** | Search with no results, chat list load failure (currently `console.error` and an empty list), loading skeletons. | S |
+
+Notes on what was built (all in `connect-messenger-react`; the backend needed nothing):
+
+- **Responsive (4.1):** done with the redesign in section 2: chat list and conversation take turns below 768 px (back button), the right column hides below 1200 px.
+  Dialogs, the banner and the new screens are checked at phone width in the e2e tests.
+- **Connection banner (4.2):** `ConnectionBanner` under the header, a `role="status"` region. It shows "Connection lost. Reconnecting..." when the websocket drops after having been up,
+  "You're offline" from the browser's `online`/`offline` events, and "Connecting..." only when the first connection takes more than 3 s.
+- **Notifications (4.3):** settings dialog (gear in the header): desktop notifications (asks for the browser permission, explains a refusal) and a beep (made with WebAudio, no file).
+  A notification is shown for a new message of somebody else when its chat is not the open one, or the tab is hidden; never for muted chats (3.5), own, deleted or edited messages.
+  One per chat (`tag`), a click opens the chat. Not done: notifications while the page is closed (needs a service worker and web push, i.e. backend work).
+- **Themes (4.4):** the colours are CSS variables (`base.scss`), `data-theme` on `<html>` is set before the first render; "same as the device" (follows changes), light, dark.
+  The yellow brand colour is used only for fills; as text or an outline a darker variant is used on the light theme. Reaction chips stay dark gray in both themes.
+  Settings (theme, language, notifications, sound) are kept in `localStorage`.
+- **i18n (4.5):** `src/i18n/en.ts` (the shape) and `pl.ts`; `strings` reads the current language at use time, so a switch shows at once without losing the open dialogs or the typed text.
+  The default is the browser language (Polish or English). Weekday names use `Intl`; "last seen" texts are translated. A test checks that both languages have every key.
+  The mix of Polish and English in the old `strings.ts` is gone (English is the base, Polish is a full translation).
+- **Accessibility (4.6):** live region that reads out new messages (`Announcer`, not for muted chats), the focus moves to the conversation title when a chat is chosen from the list, arrow keys / Home / End in the chat list,
+  skip link to the message input, labelled regions (`Chats`, `Messages` log), dialogs trap and restore the focus. Contrast of every text/surface pair of both themes is a unit test (`contrast.test.ts`, WCAG AA 4.5:1;
+  3:1 for focus rings); the orange of badges and the banner was darkened to pass.
+- **States (4.7):** skeletons while the chat list loads, "try again" when it fails, an explanation when there are no chats and a prompt instead of an empty input when none is open,
+  search messages ("type at least 2 characters", "searching", "nobody found", failure), "could not load the messages" with a retry for the first page and for older pages, "loading older messages".
+- **Not covered by automated tests:** a real browser notification (the e2e tests replace `Notification`) and the sound; the real websocket (as before).
+
 
 ## 5. Security and platform (backend-heavy)
 
