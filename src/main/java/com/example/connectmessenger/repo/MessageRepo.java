@@ -22,4 +22,8 @@ public interface MessageRepo extends JpaRepository<Message, Long> {
 
     /** Newest first; pass a message id as `before` to get the page of older messages. */
     List<Message> findByChatIdAndIdLessThanOrderByIdDesc(Long chatId, Long before, Limit limit);
+
+    /** Newest first; text messages that contain `text` (case-insensitive, wildcards are escaped by Spring Data). */
+    List<Message> findByChatIdAndTypeAndDeletedAtIsNullAndContentContainingIgnoreCaseAndIdLessThanOrderByIdDesc(
+            Long chatId, MessageType type, String text, Long before, Limit limit);
 }

@@ -48,8 +48,16 @@ public class MessageService {
             }
         }
 
+        if (request.replyToId() != null) {
+            Message original = messageRepo.findById(request.replyToId()).orElse(null);
+            if (original == null || !original.getChatId().equals(request.chatId())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "replyToId must be a message of the same chat");
+            }
+        }
+
         var saved = messageRepo.save(Message.builder()
                 .chatId(request.chatId())
+                .replyToId(request.replyToId())
                 .userId(request.userId())
                 .time(LocalDateTime.now())
                 .type(request.type())
@@ -60,5 +68,43 @@ public class MessageService {
             s3Client.putFile(content, request.fileContent(), image);
         }
         return saved;
+    }
+
+    /** Only the author can change a message, and only the text of a message that was not deleted. */
+    @Transactional
+    public Message editMessage(Long id, Long userId, String text) {
+        Message message = getOwnMessage(id, userId);
+        if (message.isDeleted() || message.getType() != MessageType.TEXT) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only the text of an existing message can be edited");
+        }
+        if (text == null || text.isBlank() || text.length() > MAX_TEXT_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Text must be between 1 and " + MAX_TEXT_LENGTH + " characters");
+        }
+        if (!text.equals(message.getContent())) {
+            message.setContent(text);
+            message.setEditedAt(LocalDateTime.now());
+            messageRepo.save(message);
+        }
+        return message;
+    }
+
+    /** Idempotent soft delete by the author. */
+    @Transactional
+    public Message deleteMessage(Long id, Long userId) {
+        Message message = getOwnMessage(id, userId);
+        if (!message.isDeleted()) {
+            message.setDeletedAt(LocalDateTime.now());
+            messageRepo.save(message);
+        }
+        return message;
+    }
+
+    private Message getOwnMessage(Long id, Long userId) {
+        Message message = getMessageById(id);
+        if (!message.getUserId().equals(userId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the author can change a message");
+        }
+        return message;
     }
 }

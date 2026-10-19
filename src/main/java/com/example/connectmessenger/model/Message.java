@@ -41,4 +41,17 @@ public class Message {
 
     @Column(length = 1000)
     private String content;
+
+    /** Set when the author changed the text. */
+    private LocalDateTime editedAt;
+
+    /** Soft delete: the row stays (ids, unread counts), the content is no longer served. */
+    private LocalDateTime deletedAt;
+
+    /** The message this one replies to (in the same chat). */
+    private Long replyToId;
+
+    public boolean isDeleted() {
+        return deletedAt != null;
+    }
 }

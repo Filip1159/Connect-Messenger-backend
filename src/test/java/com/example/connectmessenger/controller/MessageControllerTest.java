@@ -108,7 +108,7 @@ class MessageControllerTest extends ControllerComponentTest {
     void fileCanBeDownloadedOnlyByMembersOfItsChat() {
         String name = fileMessage(janek(), PNG).post("/message").then().statusCode(200).extract().path("content");
         when(messageRepo.findByTypeAndContent(MessageType.FILE, name))
-                .thenReturn(Optional.of(new Message(100L, 1L, 1L, LocalDateTime.now(), MessageType.FILE, name)));
+                .thenReturn(Optional.of(new Message(100L, 1L, 1L, LocalDateTime.now(), MessageType.FILE, name, null, null, null)));
         when(s3Client.getObjectAsBytes(any(GetObjectRequest.class)))
                 .thenReturn(ResponseBytes.fromByteArray(GetObjectResponse.builder().build(), PNG));
 
@@ -148,7 +148,7 @@ class MessageControllerTest extends ControllerComponentTest {
     void rawFileIsServedWithItsContentTypeToMembersOnly() {
         String name = fileMessage(janek(), PNG).post("/message").then().statusCode(200).extract().path("content");
         when(messageRepo.findByTypeAndContent(MessageType.FILE, name))
-                .thenReturn(Optional.of(new Message(100L, 1L, 1L, LocalDateTime.now(), MessageType.FILE, name)));
+                .thenReturn(Optional.of(new Message(100L, 1L, 1L, LocalDateTime.now(), MessageType.FILE, name, null, null, null)));
         when(s3Client.getObjectAsBytes(any(GetObjectRequest.class)))
                 .thenReturn(ResponseBytes.fromByteArray(GetObjectResponse.builder().build(), PNG));
 
@@ -157,5 +157,125 @@ class MessageControllerTest extends ControllerComponentTest {
 
         assertThat(bytes).isEqualTo(PNG);
         as(grace()).get("/message/file/" + name + "/raw").then().statusCode(403);
+    }
+
+    @Test
+    void authorCanEditTheTextAndTheChangeIsMarked() {
+        asJson(janek(), "{\"textContent\":\"hello again\"}").patch("/message/1")
+                .then().statusCode(200)
+                .body("content", equalTo("hello again"))
+                .body("editedAt", org.hamcrest.Matchers.notNullValue())
+                .body("deleted", equalTo(false));
+
+        verify(messageRepo).save(any(Message.class));
+    }
+
+    @Test
+    void messageCanBeEditedOnlyByItsAuthorWithValidText() {
+        asJson(grace(), "{\"textContent\":\"x\"}").patch("/message/1").then().statusCode(403);
+        asJson(ewa(), "{\"textContent\":\"x\"}").patch("/message/1").then().statusCode(403);
+        asJson(janek(), "{\"textContent\":\"  \"}").patch("/message/1").then().statusCode(400);
+        asJson(janek(), "{\"textContent\":\"" + "a".repeat(1001) + "\"}").patch("/message/1").then().statusCode(400);
+        asJson(janek(), "{\"textContent\":\"x\"}").patch("/message/99999").then().statusCode(404);
+
+        verify(messageRepo, never()).save(any());
+    }
+
+    @Test
+    void authorCanDeleteAMessageWhichThenHasNoContent() {
+        as(janek()).delete("/message/1")
+                .then().statusCode(200)
+                .body("deleted", equalTo(true))
+                .body("content", equalTo(""));
+
+        as(grace()).delete("/message/1").then().statusCode(403);
+        as(ewa()).delete("/message/1").then().statusCode(403);
+    }
+
+    @Test
+    void deletedMessagesCannotBeEditedAndTheirFilesAreGone() {
+        var deleted = new Message(100L, 1L, 1L, LocalDateTime.now(), MessageType.FILE, "1_a.png", null, LocalDateTime.now(), null);
+        when(messageRepo.findById(100L)).thenReturn(Optional.of(deleted));
+        when(messageRepo.findByTypeAndContent(MessageType.FILE, "1_a.png")).thenReturn(Optional.of(deleted));
+
+        asJson(janek(), "{\"textContent\":\"x\"}").patch("/message/100").then().statusCode(409);
+        as(janek()).get("/message/file/1_a.png/raw").then().statusCode(404);
+        as(janek()).get("/message/100").then().statusCode(200).body("deleted", equalTo(true)).body("content", equalTo(""));
+    }
+
+    @Test
+    void textMessagesCanBeSearchedNewestFirst() {
+        as(janek()).get("/chats/chat/1/messages?query=M11&size=3")
+                .then().statusCode(200)
+                .body("id", contains(119, 118, 117));
+        as(janek()).get("/chats/chat/1/messages?query=m11&size=3&before=117")
+                .then().statusCode(200)
+                .body("id", contains(116, 115, 114));
+    }
+
+    @Test
+    void searchNeedsAQueryAndMembership() {
+        as(janek()).queryParam("query", "  ").get("/chats/chat/1/messages").then().statusCode(400);
+        as(janek()).get("/chats/chat/1/messages?query=" + "a".repeat(101)).then().statusCode(400);
+        as(grace()).get("/chats/chat/1/messages?query=m1").then().statusCode(403);
+    }
+
+    @Test
+    void messageCanReplyToAMessageOfTheSameChat() {
+        textMessage(janek(), 1, 1, "answer").multiPart("replyToId", 1).post("/message")
+                .then().statusCode(200)
+                .body("replyToId", equalTo(1));
+    }
+
+    @Test
+    void replyTargetMustExistInTheSameChat() {
+        textMessage(janek(), 1, 1, "wrong chat").multiPart("replyToId", 13).post("/message").then().statusCode(400);
+        textMessage(janek(), 1, 1, "no such message").multiPart("replyToId", 99999).post("/message").then().statusCode(400);
+
+        verify(messageRepo, never()).save(any());
+    }
+
+    @Test
+    void membersCanReactAndChangeOrRemoveTheirReaction() {
+        asJson(ewa(), "{\"emoji\":\"👍\"}").put("/message/1/reaction")
+                .then().statusCode(200)
+                .body("reactions.emoji", contains("👍"))
+                .body("reactions[0].userIds", contains(2));
+
+        asJson(janek(), "{\"emoji\":\"👍\"}").put("/message/1/reaction")
+                .then().statusCode(200)
+                .body("reactions[0].userIds", contains(2, 1));
+
+        asJson(ewa(), "{\"emoji\":\"❤️\"}").put("/message/1/reaction")
+                .then().statusCode(200)
+                .body("reactions.emoji", contains("❤️", "👍"));
+
+        as(janek()).delete("/message/1/reaction")
+                .then().statusCode(200)
+                .body("reactions.emoji", contains("❤️"));
+        as(janek()).delete("/message/1/reaction").then().statusCode(200);  // idempotent
+
+        as(janek()).get("/message/1").then().body("reactions.emoji", contains("❤️"));
+    }
+
+    @Test
+    void reactionsAreLimitedToMembersAndKnownEmojis() {
+        asJson(grace(), "{\"emoji\":\"👍\"}").put("/message/1/reaction").then().statusCode(403);
+        as(grace()).delete("/message/1/reaction").then().statusCode(403);
+        asJson(janek(), "{\"emoji\":\"<script>\"}").put("/message/1/reaction").then().statusCode(400);
+        asJson(janek(), "{}").put("/message/1/reaction").then().statusCode(400);
+        asJson(janek(), "{\"emoji\":\"👍\"}").put("/message/99999/reaction").then().statusCode(404);
+
+        assertThat(reactions).isEmpty();
+    }
+
+    @Test
+    void historyCarriesTheReactions() {
+        asJson(ewa(), "{\"emoji\":\"🙏\"}").put("/message/1/reaction").then().statusCode(200);
+
+        as(janek()).get("/chats/chat/1/messages?after=0&size=2")
+                .then().statusCode(200)
+                .body("[0].reactions.emoji", contains("🙏"))
+                .body("[1].reactions", org.hamcrest.Matchers.empty());
     }
 }

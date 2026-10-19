@@ -13,6 +13,7 @@ public record CreateMessageRequest(
         LocalDateTime time,
         MessageType type,
         String textContent,
-        MultipartFile fileContent
+        MultipartFile fileContent,
+        Long replyToId
 ) {
 }

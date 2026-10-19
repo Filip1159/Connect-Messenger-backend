@@ -45,7 +45,7 @@ class MessageServiceTest {
     @Test
     void textMessageIsSavedWithServerTimeAndNoUpload() {
         stubSave();
-        var request = new CreateMessageRequest(1L, 2L, CLIENT_TIME, MessageType.TEXT, "hello", null);
+        var request = new CreateMessageRequest(1L, 2L, CLIENT_TIME, MessageType.TEXT, "hello", null, null);
 
         Message saved = messageService.addMessage(request);
 
@@ -59,15 +59,15 @@ class MessageServiceTest {
     @Test
     void invalidTextIsRejected() {
         for (String text : new String[]{null, "", "   ", "x".repeat(1001)}) {
-            assertBadRequest(new CreateMessageRequest(1L, 2L, null, MessageType.TEXT, text, null));
+            assertBadRequest(new CreateMessageRequest(1L, 2L, null, MessageType.TEXT, text, null, null));
         }
         verify(messageRepo, never()).save(any());
     }
 
     @Test
     void missingChatOrTypeIsRejected() {
-        assertBadRequest(new CreateMessageRequest(null, 2L, null, MessageType.TEXT, "hi", null));
-        assertBadRequest(new CreateMessageRequest(1L, 2L, null, null, "hi", null));
+        assertBadRequest(new CreateMessageRequest(null, 2L, null, MessageType.TEXT, "hi", null, null));
+        assertBadRequest(new CreateMessageRequest(1L, 2L, null, null, "hi", null, null));
         verify(messageRepo, never()).save(any());
     }
 
@@ -79,7 +79,7 @@ class MessageServiceTest {
         when(s3Client.detectImage(file)).thenReturn(info);
 
         Message saved = messageService.addMessage(
-                new CreateMessageRequest(5L, 2L, null, MessageType.FILE, null, file));
+                new CreateMessageRequest(5L, 2L, null, MessageType.FILE, null, file, null));
 
         assertThat(saved.getContent()).matches("5_[0-9a-f-]{36}\\.png");  // name/extension never come from the client
         verify(s3Client).putFile(saved.getContent(), file, info);
@@ -90,7 +90,7 @@ class MessageServiceTest {
         stubSave();
         var file = new MockMultipartFile("fileContent", "a.png", "image/png", new byte[]{1});
         when(s3Client.detectImage(file)).thenReturn(new AwsS3Client.ImageInfo("image/png", "png"));
-        var request = new CreateMessageRequest(5L, 2L, null, MessageType.FILE, null, file);
+        var request = new CreateMessageRequest(5L, 2L, null, MessageType.FILE, null, file, null);
 
         assertThat(messageService.addMessage(request).getContent())
                 .isNotEqualTo(messageService.addMessage(request).getContent());
@@ -101,7 +101,7 @@ class MessageServiceTest {
         var file = new MockMultipartFile("fileContent", "a.png", "image/png", new byte[]{1});
         when(s3Client.detectImage(file)).thenThrow(new ResponseStatusException(HttpStatus.BAD_REQUEST));
 
-        assertBadRequest(new CreateMessageRequest(5L, 2L, null, MessageType.FILE, null, file));
+        assertBadRequest(new CreateMessageRequest(5L, 2L, null, MessageType.FILE, null, file, null));
         verify(messageRepo, never()).save(any());
         verify(s3Client, never()).putFile(anyString(), any(), any());
     }
@@ -115,7 +115,7 @@ class MessageServiceTest {
         doThrow(new IllegalStateException("s3 down")).when(s3Client).putFile(anyString(), any(), any());
 
         assertThatThrownBy(() -> messageService.addMessage(
-                new CreateMessageRequest(5L, 2L, null, MessageType.FILE, null, file)))
+                new CreateMessageRequest(5L, 2L, null, MessageType.FILE, null, file, null)))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -130,7 +130,7 @@ class MessageServiceTest {
     @Test
     void savedEntityMatchesRequest() {
         stubSave();
-        messageService.addMessage(new CreateMessageRequest(1L, 2L, null, MessageType.TEXT, "hi", null));
+        messageService.addMessage(new CreateMessageRequest(1L, 2L, null, MessageType.TEXT, "hi", null, null));
 
         ArgumentCaptor<Message> captor = ArgumentCaptor.forClass(Message.class);
         verify(messageRepo).save(captor.capture());

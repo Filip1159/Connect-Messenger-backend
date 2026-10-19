@@ -54,17 +54,34 @@ Notes on what was built:
 - Verified against a real backend (dev profile) with a STOMP client: presence online/offline events, typing relay, and that
   foreign presence/typing subscriptions are refused. Not covered by automated tests: the browser's real websocket.
 
-## 2. Message features
+## 2. Message features — DONE
 
 | # | Feature | Details | Size |
 |---|---------|---------|------|
-| 2.1 | **Image preview and lightbox** | Click an image to open it full size; show a loading placeholder and an error state instead of an empty `<img>`. Needs 0.2 (blob URLs), BE can add thumbnails. | S–M |
-| 2.2 | **Emoji picker, multi-line input, Enter/Shift+Enter** | The input is a single-line `<input type="text">`; switch to an auto-growing textarea. | S |
-| 2.3 | **Drag and drop / paste images, attachment preview with remove** | Today a chosen file replaces the icon, and cannot be cancelled except by typing. Validate type/size (`MaxUploadSizeExceeded` returns 413) before upload and show the message. | S–M |
-| 2.4 | **Delete and edit own messages** | BE: `DELETE /message/{id}`, `PATCH /message/{id}`, soft delete, broadcast an event to `/topic/messages/{chatId}` (needs an event type field, see 5.2). FE: context menu, "edited" label. | M (FE+BE) |
-| 2.5 | **Message search within a chat** | BE: `GET /chats/chat/{id}/messages?query=` (LIKE, later full text). FE: search box in the conversation header. | M (FE+BE) |
-| 2.6 | **Links and formatting** | Linkify URLs (safely, `rel="noopener noreferrer"`), preserve newlines. Never render message content as HTML. | S |
-| 2.7 | **Reactions and replies** | Emoji reactions; reply-to quoting. Needs schema additions (`message_reaction`, `reply_to_id`). | L |
+| 2.1 ✅ | **Image preview and lightbox** | Click an image to open it full size; show a loading placeholder and an error state instead of an empty `<img>`. Needs 0.2 (blob URLs), BE can add thumbnails. | S–M |
+| 2.2 ✅ | **Emoji picker, multi-line input, Enter/Shift+Enter** | The input is a single-line `<input type="text">`; switch to an auto-growing textarea. | S |
+| 2.3 ✅ | **Drag and drop / paste images, attachment preview with remove** | Today a chosen file replaces the icon, and cannot be cancelled except by typing. Validate type/size (`MaxUploadSizeExceeded` returns 413) before upload and show the message. | S–M |
+| 2.4 ✅ | **Delete and edit own messages** | BE: `DELETE /message/{id}`, `PATCH /message/{id}`, soft delete, broadcast an event to `/topic/messages/{chatId}` (needs an event type field, see 5.2). FE: context menu, "edited" label. | M (FE+BE) |
+| 2.5 ✅ | **Message search within a chat** | BE: `GET /chats/chat/{id}/messages?query=` (LIKE, later full text). FE: search box in the conversation header. | M (FE+BE) |
+| 2.6 ✅ | **Links and formatting** | Linkify URLs (safely, `rel="noopener noreferrer"`), preserve newlines. Never render message content as HTML. | S |
+| 2.7 ✅ | **Reactions and replies** | Emoji reactions; reply-to quoting. Needs schema additions (`message_reaction`, `reply_to_id`). | L |
+
+Notes on what was built:
+
+- **Images (2.1):** loading placeholder, error state, click opens a lightbox (Esc / click outside / button; focus returns to the image). No thumbnails: the original is loaded.
+- **Input (2.2):** auto-growing textarea (Enter sends, Shift+Enter new line, IME-safe), a small built-in emoji picker (no dependency).
+- **Attachments (2.3):** preview with a remove button, drag and drop on the form, paste into the field; type (JPG/PNG/GIF) and size (5 MB) are checked before the upload. With text and an image, the image is sent first, then the text.
+- **Edit and delete (2.4):** `PATCH /message/{id}` (`{textContent}`) and `DELETE /message/{id}` (soft: `deletedAt`, the DTO has `deleted=true` and no content, the file is no longer served). `Message.editedAt` / `deletedAt` are new columns.
+  No separate event type: the updated `MessageDto` (same id) is published on `/topic/messages/{chatId}` and the client replaces the known message.
+- **Search (2.5):** `GET /chats/chat/{id}/messages?query=` (case-insensitive substring of text messages, newest first, `before` pages, 1-100 chars). The panel jumps to a result by loading older pages until it is there (up to 40 pages).
+- **Links (2.6):** http(s) only, `rel="noopener noreferrer nofollow"`, content is never rendered as HTML, newlines kept.
+- **Replies and reactions (2.7):** `POST /message` takes `replyToId` (must be in the same chat); `MessageDto.replyToId`. The quote is built from the loaded history or fetched with `GET /message/{id}`.
+  `PUT /message/{id}/reaction` (`{emoji}`, one per user, replaces the previous) and `DELETE /message/{id}/reaction`, from a fixed set (`ReactionService.ALLOWED_EMOJIS`, mirrored in `src/reactions.ts`).
+  `MessageDto.reactions = [{emoji, userIds}]`, loaded with one query per page. New table `message_reactions` (unique per message and user) and column `messages.reply_to_id`.
+  Reactions are not part of the legacy `GET /chats/{userId}` with messages, only of the paged message endpoints.
+- **Schema:** `messages.edited_at`, `messages.deleted_at`, `messages.reply_to_id` and `message_reactions` need a migration in production (5.7).
+- **Known gap:** catch-up after a reconnect (`?after=`) only brings new messages, so an edit, delete or reaction made while the client was offline shows after a reload.
+- Also fixed: the invisible hover tooltip of a message could cover buttons of other messages (`pointer-events: none`).
 
 ## 3. Chats and users
 

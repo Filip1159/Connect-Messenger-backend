@@ -2,12 +2,14 @@ package com.example.connectmessenger.controller;
 
 import com.example.connectmessenger.model.Chat;
 import com.example.connectmessenger.model.Message;
+import com.example.connectmessenger.model.Reaction;
 import com.example.connectmessenger.model.MessageType;
 import com.example.connectmessenger.model.Status;
 import com.example.connectmessenger.model.StatusEmbeddedId;
 import com.example.connectmessenger.model.User;
 import com.example.connectmessenger.repo.ChatRepo;
 import com.example.connectmessenger.repo.MessageRepo;
+import com.example.connectmessenger.repo.ReactionRepo;
 import com.example.connectmessenger.repo.StatusRepo;
 import com.example.connectmessenger.repo.UserRepo;
 import io.restassured.RestAssured;
@@ -32,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.IntStream;
 
@@ -91,6 +94,11 @@ abstract class ControllerComponentTest {
     MessageRepo messageRepo;
     @MockitoBean
     StatusRepo statusRepo;
+    @MockitoBean
+    ReactionRepo reactionRepo;
+
+    /** The reactions "table" of the current test. */
+    final List<Reaction> reactions = new CopyOnWriteArrayList<>();
 
     @BeforeEach
     void stubRepositories() {
@@ -133,7 +141,7 @@ abstract class ControllerComponentTest {
             long before = inv.getArgument(1);
             return IntStream.rangeClosed(1, 120).boxed().sorted(Comparator.reverseOrder())
                     .filter(i -> i < before)
-                    .map(i -> new Message((long) i, chatId, 1L, LocalDateTime.parse("2021-07-07T22:00:00"), MessageType.TEXT, "m" + i))
+                    .map(i -> new Message((long) i, chatId, 1L, LocalDateTime.parse("2021-07-07T22:00:00"), MessageType.TEXT, "m" + i, null, null, null))
                     .limit(inv.<Limit>getArgument(2).max())
                     .toList();
         });
@@ -143,14 +151,44 @@ abstract class ControllerComponentTest {
             long after = inv.getArgument(1);
             return IntStream.rangeClosed(1, 120).boxed()
                     .filter(i -> i > after)
-                    .map(i -> new Message((long) i, chatId, 1L, LocalDateTime.parse("2021-07-07T22:00:00"), MessageType.TEXT, "m" + i))
+                    .map(i -> new Message((long) i, chatId, 1L, LocalDateTime.parse("2021-07-07T22:00:00"), MessageType.TEXT, "m" + i, null, null, null))
                     .limit(inv.<Limit>getArgument(2).max())
+                    .toList();
+        });
+        // search: messages m1..m120, newest first, filtered by the (lower-cased) text
+        when(messageRepo.findByChatIdAndTypeAndDeletedAtIsNullAndContentContainingIgnoreCaseAndIdLessThanOrderByIdDesc(
+                anyLong(), any(), anyString(), anyLong(), any())).thenAnswer(inv -> {
+            long chatId = inv.getArgument(0);
+            String text = ((String) inv.getArgument(2)).toLowerCase();
+            long before = inv.getArgument(3);
+            return IntStream.rangeClosed(1, 120).boxed().sorted(Comparator.reverseOrder())
+                    .filter(i -> i < before && ("m" + i).contains(text))
+                    .map(i -> new Message((long) i, chatId, 1L, LocalDateTime.parse("2021-07-07T22:00:00"), MessageType.TEXT, "m" + i, null, null, null))
+                    .limit(inv.<Limit>getArgument(4).max())
                     .toList();
         });
         // unread = 120 messages minus the last seen one (statuses carry no message id here, so everything is unread)
         when(messageRepo.countByChatIdAndIdGreaterThanAndUserIdNot(anyLong(), anyLong(), anyLong())).thenReturn(3L);
         when(chatRepo.sharesChat(anyLong(), anyLong())).thenAnswer(inv -> MEMBERS.values().stream()
                 .anyMatch(m -> m.contains(inv.<Long>getArgument(0)) && m.contains(inv.<Long>getArgument(1))));
+
+        reactions.clear();
+        var nextReactionId = new AtomicLong(1);
+        when(reactionRepo.save(any(Reaction.class))).thenAnswer(inv -> {
+            Reaction reaction = inv.getArgument(0);
+            if (reaction.getId() == null) {
+                reaction.setId(nextReactionId.getAndIncrement());
+                reactions.add(reaction);
+            }
+            return reaction;
+        });
+        when(reactionRepo.findByMessageIdAndUserId(anyLong(), anyLong())).thenAnswer(inv -> reactions.stream()
+                .filter(r -> r.getMessageId().equals(inv.getArgument(0)) && r.getUserId().equals(inv.getArgument(1)))
+                .findFirst());
+        when(reactionRepo.findByMessageIdIn(any())).thenAnswer(inv -> reactions.stream()
+                .filter(r -> inv.<java.util.Collection<Long>>getArgument(0).contains(r.getMessageId())).toList());
+        org.mockito.Mockito.doAnswer(inv -> reactions.remove(inv.<Reaction>getArgument(0)))
+                .when(reactionRepo).delete(any(Reaction.class));
 
         when(statusRepo.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
         when(statusRepo.save(any(Status.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -168,8 +206,8 @@ abstract class ControllerComponentTest {
 
     private static Message message(long id) {
         return switch ((int) id) {
-            case 1 -> new Message(1L, 1L, 1L, LocalDateTime.parse("2021-07-07T22:00:00"), MessageType.TEXT, "hi");
-            case 13 -> new Message(13L, 2L, 3L, LocalDateTime.parse("2021-07-08T10:00:00"), MessageType.TEXT, "hello");
+            case 1 -> new Message(1L, 1L, 1L, LocalDateTime.parse("2021-07-07T22:00:00"), MessageType.TEXT, "hi", null, null, null);
+            case 13 -> new Message(13L, 2L, 3L, LocalDateTime.parse("2021-07-08T10:00:00"), MessageType.TEXT, "hello", null, null, null);
             default -> null;
         };
     }
@@ -212,5 +250,9 @@ abstract class ControllerComponentTest {
 
     static String grace() {
         return login("grace01", "1234");
+    }
+
+    static String ewa() {
+        return login("ewa-nowak", "abcd");
     }
 }
