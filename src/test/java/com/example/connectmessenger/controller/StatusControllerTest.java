@@ -1,9 +1,10 @@
 package com.example.connectmessenger.controller;
 
 import com.example.connectmessenger.model.Status;
+import com.example.connectmessenger.model.dto.Event;
 import com.example.connectmessenger.model.dto.StatusDto;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import com.example.connectmessenger.service.Realtime;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.junit.jupiter.api.Test;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -12,8 +13,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 class StatusControllerTest extends ControllerComponentTest {
-    @MockitoSpyBean
-    SimpMessagingTemplate template;
+    @MockitoBean
+    Realtime realtime;
 
 
     @Test
@@ -22,8 +23,8 @@ class StatusControllerTest extends ControllerComponentTest {
                 .put("/api/v1/status").then().statusCode(200);
 
         verify(statusRepo).save(any(Status.class));
-        verify(template).convertAndSend(eq("/topic/status/1"), any(StatusDto.class));
-        verify(template).convertAndSend(eq("/topic/messages/1"), any(StatusDto.class));
+        verify(realtime).publish(eq("/topic/status/1"), org.mockito.ArgumentMatchers.<Event<?>>argThat(
+                o -> o instanceof Event<?> e && e.type().equals(Event.STATUS_UPDATED) && e.payload() instanceof StatusDto));
     }
 
     @Test

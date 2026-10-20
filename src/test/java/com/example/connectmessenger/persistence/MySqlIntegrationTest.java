@@ -26,9 +26,22 @@ abstract class MySqlIntegrationTest {
      */
     static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4");
 
+    /** The Socket.IO server of the app listens on its own port. */
+    static final int REALTIME_PORT = freePort();
+
+    private static int freePort() {
+        try (var socket = new java.net.ServerSocket(0)) {
+            return socket.getLocalPort();
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) {
         if (!MYSQL.isRunning()) MYSQL.start();
+        registry.add("realtime.enabled", () -> true);
+        registry.add("realtime.port", () -> REALTIME_PORT);
         registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
         registry.add("spring.datasource.username", MYSQL::getUsername);
         registry.add("spring.datasource.password", MYSQL::getPassword);

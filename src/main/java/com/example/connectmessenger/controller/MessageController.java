@@ -4,6 +4,7 @@ import com.example.connectmessenger.model.Message;
 import com.example.connectmessenger.model.MessageType;
 import com.example.connectmessenger.model.User;
 import com.example.connectmessenger.model.dto.CreateMessageRequest;
+import com.example.connectmessenger.model.dto.Event;
 import com.example.connectmessenger.model.dto.MessageDto;
 import com.example.connectmessenger.repo.MessageRepo;
 import com.example.connectmessenger.service.AwsS3Client;
@@ -16,7 +17,8 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
+import com.example.connectmessenger.service.Realtime;
+import com.example.connectmessenger.service.Rooms;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -54,7 +56,7 @@ public class MessageController {
     private final MessageRepo messageRepo;
     private final ChatService chatService;
     private final ReactionService reactionService;
-    private final SimpMessagingTemplate template;
+    private final Realtime realtime;
 
     @GetMapping("/api/v1/messages/{id}")
     public MessageDto getMessageById(@PathVariable long id, @AuthenticationPrincipal User principal) {
@@ -74,18 +76,18 @@ public class MessageController {
         var request = new CreateMessageRequest(message.chatId(), principal.getId(), message.time(),
                 message.type(), message.textContent(), message.fileContent(), message.replyToId());
         Message added = messageService.addMessage(request);
-        return publish(added);
+        return publish(Event.MESSAGE_CREATED, added);
     }
 
     @PatchMapping("/api/v1/messages/{id}")
     public MessageDto editMessage(@PathVariable long id, @RequestBody EditMessageRequest request,
                                   @AuthenticationPrincipal User principal) {
-        return publish(messageService.editMessage(id, principal.getId(), request.textContent()));
+        return publish(Event.MESSAGE_EDITED, messageService.editMessage(id, principal.getId(), request.textContent()));
     }
 
     @DeleteMapping("/api/v1/messages/{id}")
     public MessageDto deleteMessage(@PathVariable long id, @AuthenticationPrincipal User principal) {
-        return publish(messageService.deleteMessage(id, principal.getId()));
+        return publish(Event.MESSAGE_DELETED, messageService.deleteMessage(id, principal.getId()));
     }
 
     @PutMapping("/api/v1/messages/{id}/reaction")
@@ -94,7 +96,7 @@ public class MessageController {
         Message message = messageService.getMessageById(id);
         chatService.assertMember(message.getChatId(), principal.getId());
         reactionService.react(message, principal.getId(), request.emoji());
-        return publish(message);
+        return publish(Event.MESSAGE_REACTED, message);
     }
 
     @DeleteMapping("/api/v1/messages/{id}/reaction")
@@ -102,13 +104,13 @@ public class MessageController {
         Message message = messageService.getMessageById(id);
         chatService.assertMember(message.getChatId(), principal.getId());
         reactionService.remove(message, principal.getId());
-        return publish(message);
+        return publish(Event.MESSAGE_REACTED, message);
     }
 
     /** Sends the current state of the message (with its reactions) to the chat and returns it. */
-    private MessageDto publish(Message message) {
+    private MessageDto publish(String eventType, Message message) {
         var dto = reactionService.toDto(message);
-        template.convertAndSend("/topic/messages/" + message.getChatId(), dto);
+        realtime.publish(Rooms.messages(message.getChatId()), Event.of(eventType, dto));
         return dto;
     }
 

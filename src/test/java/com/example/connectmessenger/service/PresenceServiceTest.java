@@ -2,6 +2,7 @@ package com.example.connectmessenger.service;
 
 import com.example.connectmessenger.model.Chat;
 import com.example.connectmessenger.model.User;
+import com.example.connectmessenger.model.dto.Event;
 import com.example.connectmessenger.model.dto.PresenceDto;
 import com.example.connectmessenger.repo.ChatRepo;
 import com.example.connectmessenger.repo.UserRepo;
@@ -10,7 +11,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -30,7 +30,7 @@ class PresenceServiceTest {
     @Mock
     ChatRepo chatRepo;
     @Mock
-    SimpMessagingTemplate template;
+    Realtime realtime;
     @InjectMocks
     PresenceService presence;
 
@@ -44,7 +44,7 @@ class PresenceServiceTest {
     void userIsOnlineWhileAnySessionIsOpen() {
         presence.sessionOpened("a", 1L);
         presence.sessionOpened("b", 1L);
-        verify(template).convertAndSend("/topic/presence/1", new PresenceDto(1L, true, null));  // only for the first one
+        verify(realtime).publish("/topic/presence/1", Event.of(Event.PRESENCE_CHANGED, new PresenceDto(1L, true, null)));  // only for the first one
 
         presence.sessionClosed("a");
         assertThat(presence.isOnline(1L)).isTrue();
@@ -54,14 +54,15 @@ class PresenceServiceTest {
         presence.sessionClosed("b");
         assertThat(presence.isOnline(1L)).isFalse();
         verify(userRepo).save(any(User.class));
-        verify(template).convertAndSend(eq("/topic/presence/1"), org.mockito.ArgumentMatchers.<Object>argThat(
-                o -> o instanceof PresenceDto d && !d.online() && d.lastSeen() != null));
+        verify(realtime).publish(eq("/topic/presence/1"), org.mockito.ArgumentMatchers.<Event<?>>argThat(
+                o -> o instanceof Event<?> e && e.type().equals(Event.PRESENCE_CHANGED)
+                        && e.payload() instanceof PresenceDto d && !d.online() && d.lastSeen() != null));
     }
 
     @Test
     void closingAnUnknownSessionIsIgnored() {
         presence.sessionClosed("unknown");
-        verify(template, never()).convertAndSend(any(String.class), any(Object.class));
+        verify(realtime, never()).publish(any(String.class), any(Event.class));
     }
 
     @Test

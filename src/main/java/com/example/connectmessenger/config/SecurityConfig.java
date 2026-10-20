@@ -70,7 +70,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()  // keep real error codes
-                        .requestMatchers("/api/v1/login", "/websocket/**").permitAll()
+                        .requestMatchers("/api/v1/login").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()  // load balancer / orchestrator probes
                         .requestMatchers(HttpMethod.POST, "/api/v1/users").permitAll()  // registration
                         .anyRequest().authenticated())

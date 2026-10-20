@@ -1,17 +1,18 @@
 package com.example.connectmessenger.controller;
 
-import com.example.connectmessenger.config.CustomProperties;
 import com.example.connectmessenger.model.Message;
 import com.example.connectmessenger.model.Status;
 import com.example.connectmessenger.model.StatusEmbeddedId;
 import com.example.connectmessenger.model.User;
+import com.example.connectmessenger.model.dto.Event;
 import com.example.connectmessenger.model.dto.StatusDto;
 import com.example.connectmessenger.repo.MessageRepo;
 import com.example.connectmessenger.repo.StatusRepo;
 import com.example.connectmessenger.service.ChatService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
+import com.example.connectmessenger.service.Realtime;
+import com.example.connectmessenger.service.Rooms;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -27,8 +28,7 @@ public class StatusController {
     private final StatusRepo statusRepo;
     private final MessageRepo messageRepo;
     private final ChatService chatService;
-    private final SimpMessagingTemplate template;
-    private final CustomProperties properties;
+    private final Realtime realtime;
 
     @PutMapping("/api/v1/status")
     public void updateStatus(@RequestBody StatusDto request, @AuthenticationPrincipal User principal) {
@@ -57,10 +57,6 @@ public class StatusController {
         own.setTime(request.time() == null ? LocalDateTime.now() : request.time());
         Status saved = statusRepo.save(own);
         var dto = StatusDto.from(saved);
-        template.convertAndSend("/topic/status/" + chatId, dto);
-        if (properties.legacyStatusBroadcast()) {
-            // old clients listen for statuses on the messages topic; switch off once they use /topic/status
-            template.convertAndSend("/topic/messages/" + chatId, dto);
-        }
+        realtime.publish(Rooms.status(chatId), Event.of(Event.STATUS_UPDATED, dto));
     }
 }

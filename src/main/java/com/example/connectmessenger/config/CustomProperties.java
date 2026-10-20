@@ -21,8 +21,6 @@ public record CustomProperties(
         @NotEmpty List<String> allowedOrigins,
         @NotBlank String s3Bucket,
         @NotBlank String awsRegion,
-        // status updates are also sent to /topic/messages/{chatId} (old clients) besides /topic/status/{chatId}
-        @DefaultValue("true") boolean legacyStatusBroadcast,
         // a username or an IP address is locked out for `loginLockout` after this many failed logins within `loginFailureWindow`
         @DefaultValue("5") @Positive int loginMaxFailures,
         @DefaultValue("15m") Duration loginFailureWindow,

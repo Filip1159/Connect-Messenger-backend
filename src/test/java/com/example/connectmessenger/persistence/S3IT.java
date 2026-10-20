@@ -44,7 +44,7 @@ class S3IT {
                 .build();
         createBucketWhenReachable(s3);
         var properties = new CustomProperties("integration-secret-integration-secret-1234", 3_600_000, List.of("http://localhost"),
-                BUCKET, LOCALSTACK.getRegion(), true, 5, Duration.ofMinutes(15), Duration.ofMinutes(15));
+                BUCKET, LOCALSTACK.getRegion(), 5, Duration.ofMinutes(15), Duration.ofMinutes(15));
         client = new AwsS3Client(s3, properties);
     }
 

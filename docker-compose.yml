@@ -41,6 +41,7 @@ services:
       AWS_REGION: ${AWS_REGION:-eu-central-1}
     ports:
       - "8080:8080"
+      - "9092:9092"  # Socket.IO (realtime events)
 
   frontend:
     profiles: [frontend]

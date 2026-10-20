@@ -1,22 +1,21 @@
 # STATUS
 
 Roadmap of features to implement next, based on a review of the React frontend
-(`connect-messenger-react`: Vite, Redux Toolkit, TypeScript, STOMP/SockJS, axios) and the current backend.
+(`connect-messenger-react`: Vite, Redux Toolkit, TypeScript, Socket.IO, axios) and the current backend.
 
 Legend: **FE** = frontend work, **BE** = backend work. Size: S (hours), M (a day or two), L (several days).
 
 ## What exists today
 
 Login (JWT in `localStorage`, auto sign-out on expiry), list of 1:1 chats sorted by last message, user search
-by query, creating a chat, text and image messages, real-time delivery over STOMP, "seen" avatars driven by
+by query, creating a chat, text and image messages, real-time delivery over Socket.IO, "seen" avatars driven by
 per-user status, sign-out. Chats are always created with exactly two users.
 
 ## 0. Prerequisite: migrate the frontend to the new backend API (FE, S–M) — DONE
 
 The frontend now uses the new endpoints. Backend additions made for it: `userId`/`time` optional in `POST /message`
 and `PUT /status` (taken from the session and the server clock), `GET /chats/{userId}?includeMessages=false`.
-**Remaining backend cleanup** (safe once the frontend is deployed): set `custom.legacy-status-broadcast=false`,
-remove the Base64 endpoint, make `includeMessages=false` the default / drop `Chat.messages` eager loading, and stop
+**Remaining backend cleanup** (safe once the frontend is deployed): (the legacy status broadcast and the Base64 endpoint are gone), make `includeMessages=false` the default / drop `Chat.messages` eager loading, and stop
 accepting client-supplied `userId`/`time`.
 
 | # | Task | Frontend place | Unblocks on the backend |
@@ -161,29 +160,29 @@ Notes on what was built (all in `connect-messenger-react`; the backend needed no
 - **Not covered by automated tests:** a real browser notification (the e2e tests replace `Notification`) and the sound; the real websocket (as before).
 
 
-## 5. Security and platform (backend-heavy) — MOSTLY DONE (open: 5.2, rotation in 5.1, refresh tokens in 5.3)
+## 5. Security and platform (backend-heavy) — DONE (still open: rotating the secrets in 5.1, refresh tokens and cookies in 5.3)
 
 | # | Item | Status | Notes | Size |
 |---|------|--------|-------|------|
 | 5.1 | **Rotate secrets** | guard DONE, rotation is yours | The app refuses to start with the leaked JWT secret `vegetables` (`CustomProperties`), and README ("Rotating secrets") lists what to change. Still to do by hand in every real environment: new `JWT_SECRET`, DB password, AWS keys; consider scrubbing the git history. | S |
-| 5.2 | **Typed websocket events** | OPEN | Message, status, chat, deletion and presence currently differ only by field presence. Introduce `{type, payload}` envelopes (a topic per concern is already used for status). FE+BE, together with the legacy status broadcast removal. | M (FE+BE) |
+| 5.2 | **Typed websocket events** | DONE | Every server push is `{type, payload}` (`model/dto/Event`, `src/api/events.ts` on the frontend). Topics stay per audience (that is what the subscription checks use); `type` says what happened: `/topic/messages/{chatId}` -> `message.created\|edited\|deleted\|reacted` (payload: the message), `/topic/status/{chatId}` -> `status.updated`, `/topic/typing/{chatId}` -> `typing`, `/topic/presence/{userId}` -> `presence.changed`, `/topic/new-chats/{userId}` -> `chat.changed` (payload: the chat as that user sees it), `/topic/removed-chats/{userId}` -> `chat.removed` (`{chatId}`). Clients skip types they do not know. The status copy on the messages topic (`legacyStatusBroadcast`) is removed. Breaking for old clients: a frontend from before this change cannot read the frames (deploy both together). Client to server frames are unchanged (the typing `SEND` has no body). | M (FE+BE) |
 | 5.3 | **Token strategy** | sliding expiry DONE | The token was already sent as `Bearer <jwt>` (the stored value is the whole header). Now a token past half of its life is replaced: the response carries a fresh one in `Authentication` and `api/http.ts` stores it (only while signed in), so an active session does not end after an hour. Still open: refresh tokens / revocation, and an httpOnly cookie instead of `localStorage`. | M (FE+BE) |
 | 5.4 | **Login rate limiting / lockout** | DONE | `LoginThrottle`: 5 failures in 15 min lock the username and, separately, the IP for 15 min; `429` + `Retry-After`. In memory, so per instance; behind a proxy set `SERVER_FORWARD_HEADERS_STRATEGY=native`. Registration (`POST /users`) is still not throttled. | S |
 | 5.5 | **Persistence tests** | DONE | `persistence/PersistenceIT` on MySQL 8.4 (Testcontainers): paging, catch-up, unread counts, search, direct-chat lookup, unique constraints, emoji round trip, adopting a pre-Flyway database. Skipped when there is no Docker. | M |
-| 5.6 | **Real S3 and STOMP integration tests** | DONE | `WebsocketIT` (real STOMP client over SockJS against `RANDOM_PORT`: delivery, new-chat push, a stranger gets nothing, bad token refused) and `S3IT` (`AwsS3Client` against LocalStack). | M |
+| 5.6 | **Real S3 and Socket.IO integration tests** | DONE | `WebsocketIT` (real Socket.IO client against the app's realtime port: delivery, new-chat push, a stranger gets nothing, bad token refused) and `S3IT` (`AwsS3Client` against LocalStack). | M |
 | 5.7 | **Database migrations** | DONE | Flyway, `V1__baseline.sql` is the schema of sections 0-4; `ddl-auto=none` (the `dev` profile keeps H2 + `create`). The ITs run with `validate`, so drift between migrations and entities fails CI. A database from the `ddl-auto=update` era is baselined at V1; if it predates sections 2-3 run `docs/pre-flyway-upgrade.sql` first. | M |
 | 5.8 | **Observability** | DONE | Actuator: `/actuator/health[/liveness,/readiness]` public (no details), `/actuator/metrics` behind login; `X-Request-Id` on every response and in every log line (MDC); JSON logs with `LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs` (set in compose). No Prometheus registry yet. | S |
 | 5.9 | **Containerisation and deployment** | image DONE, deployment open | `Dockerfile` (multi-stage, JRE, non-root, healthcheck), `docker-compose.yml` (MySQL + backend, `--profile frontend` adds the frontend, which has its own `Dockerfile` + `nginx.conf`), and CI publishes `ghcr.io/<repo>:latest|<sha>` from master. No deploy step: it depends on where this runs. | M |
 | 5.10 | **REST path cleanup** | DONE | The API is under `/api/v1`: `GET /chats` (the caller's chats, no user id in the path), `/chats/{id}`, `/chats/{id}/messages|settings|members|admins`, `/messages`, `/messages/{id}[/reaction]`, `/messages/files/{name}` (raw bytes), `GET /users?query=` (search), `/users/me...`, `/status`, `/presence`, `/login`. The former unversioned paths and the Base64 file endpoint are removed (404); the frontend uses `/api/v1` only. The websocket (`/websocket`, `/topic/**`, `/app/**`) is not versioned. Anyone else calling the old paths (other clients, scripts) has to move. | M (FE+BE) |
 
-## 6. Frontend quality (FE)
+## 6. Frontend quality (FE) — mostly DONE (still open: RTK Query in 6.1, reconnect and a real backend in 6.3, virtualization in 6.4)
 
 | # | Item | Details | Size |
 |---|------|---------|------|
 | 6.1 | **Typed API layer** | Prepared: `ChatAPI` (a class of statics mixing auth, REST and the websocket) is gone. `src/api/` has `http.ts` (axios, token, 401), `session.ts`, `rest/{chats,messages,users}.ts` (plain functions, contract-tested), `socket.ts` (a `createSocket()` factory), and `store/chats/chatSync.ts` (plain, tested without React) behind a thin `useChatSync`. Still open: caching, error and loading state and abort handling, e.g. RTK Query on top of `rest/*`. | M |
-| 6.2 | **Contract tests** | Share an OpenAPI spec (springdoc on the backend) and generate TS types so `types.ts` cannot drift from the DTOs. | M (FE+BE) |
-| 6.3 | **More e2e coverage** | Playwright covers login and basic chat with a mocked backend; add scenarios for image sending, creating a chat, reconnect, expired token. Optionally run e2e against the `dev` profile (H2 + in-memory S3) in CI. | M |
-| 6.4 | **Performance of long conversations** | List virtualization once paging (0.3) is in; memoize `Message`, avoid recomputing `DateFormatter` for every row on each render. | S–M |
+| 6.2 | **Contract tests** | DONE | springdoc serves `GET /v3/api-docs` (signed-in users only). `docs/openapi.json` is its committed copy and `ApiSpecTest` fails when it is stale (`UPDATE_OPENAPI=true sh ./gradlew test --tests '*ApiSpecTest'` rewrites it). The frontend keeps a copy in `src/api/openapi.json` and generates `src/api/schema.d.ts` (`npm run gen:api`); `schema.test.ts` type-checks `types.ts` against the generated DTOs and `rest/contract.test.ts` checks that every call the app makes is an endpoint in the spec. Response DTO fields that are always set are marked required. Request bodies are not generated yet. | M (FE+BE) |
+| 6.3 | **More e2e coverage** | mostly DONE | Playwright (mocked backend) covers login, an expired token and a 401, chats, new chats, groups, accounts, and now sending an image with a caption. Still open: reconnect (needs a mocked SockJS/STOMP transport) and running the suite against the `dev` profile in CI. | M |
+| 6.4 | **Performance of long conversations** | memoization DONE, virtualization open | `Message` is `React.memo`; `formatterFor` keeps one `DateFormatter` per message until the times around it change, so unrelated renders skip the rows, and the weekday `Intl` formatter is cached per language. Windowing the list is only worth it for thousands of loaded messages, as paging keeps the DOM small. | S–M |
 
 ## Suggested order
 
@@ -193,3 +192,13 @@ Notes on what was built (all in `connect-messenger-react`; the backend needed no
 4. **3.1, 3.2**: registration and profile, so the app is usable beyond seeded data (with 5.7 migrations first).
 5. **2.x** message features and **3.3** group chats (needs 5.2 typed events and 5.7 migrations).
 6. Platform items (5.1, 5.4, 5.5, 5.6, 5.8, 5.9) in parallel, 5.1 first.
+
+## 7. Realtime on Socket.IO — DONE
+
+STOMP over SockJS (Spring's broker, `/websocket`) was replaced by Socket.IO.
+- **Backend:** `SocketIoRealtime` (netty-socketio) behind the `Realtime` interface (`publish(room, event)`, `leaveChat`); the controllers, `ChatNotifier` and `PresenceService` no longer know about the transport. `RealtimeAuthorizer` holds the former interceptor rules (token, origin, which rooms a user may follow, who may type). Presence comes from `Realtime.SessionOpened/SessionClosed` events. The server listens on its **own port** (`realtime.port`, 9092; netty cannot share Tomcat's), websocket transport only. `spring-boot-starter-websocket`, `TypingController` and the STOMP config are gone.
+- **Protocol:** `auth: {token}` on connect; `subscribe`/`unsubscribe` with the old topic names as room names; one server event, `event`, carrying the `{type, payload}` envelope of 5.2; `typing` from the client. See the README.
+- **Frontend:** `src/api/socket.ts` uses `socket.io-client` (the `Socket` interface and `chatSync` are unchanged apart from receiving the envelope object instead of a STOMP frame); `VITE_SOCKET_URL` (default: same host, port 9092); `sockjs-client` and `@stomp/stompjs` are removed.
+- **Breaking:** old frontends cannot connect any more, and the deployment must expose port 9092 (docker-compose does; a reverse proxy has to forward websocket upgrades to it).
+- **Verified:** `WebsocketIT` with the Java Socket.IO client (delivery, typed events, presence, refused rooms, removal from a group, bad token/origin) and the real JS client against `bootRun` (subscribe ack, event delivery, refused token). The browser itself was not run against the real backend.
+- **Open:** a single instance only (rooms and presence are in memory; several instances need netty-socketio's Redis/Hazelcast store); `AUTH_GRACE` is fixed at 5 s.

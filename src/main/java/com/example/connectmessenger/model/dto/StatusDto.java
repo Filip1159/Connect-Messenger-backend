@@ -1,13 +1,14 @@
 package com.example.connectmessenger.model.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.example.connectmessenger.model.Status;
 import com.example.connectmessenger.model.StatusEmbeddedId;
 
 import java.time.LocalDateTime;
 
 /** What a user has seen in a chat: the last displayed message and when it was first displayed. */
-public record StatusDto(Id id, Long messageId, LocalDateTime time) {
-    public record Id(Long userId, Long chatId) {
+public record StatusDto(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) Id id, Long messageId, LocalDateTime time) {
+    public record Id(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) Long userId, @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Long chatId) {
     }
 
     public static StatusDto from(Status s) {
